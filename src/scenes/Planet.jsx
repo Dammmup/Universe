@@ -632,6 +632,7 @@ function FactorTrigger({ pos, factorId, label, warn = false, color = '#ffffaa' }
                 <meshBasicMaterial color={c} wireframe />
             </mesh>
             <Text
+                font="/Roboto-Regular.ttf"
                 position={[0, -1.3, 0]}
                 fontSize={0.42}
                 color="white"

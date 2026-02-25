@@ -127,7 +127,7 @@ export default function MicroCosmos() {
                 <Sphere args={[1.2, 32, 32]}>
                     <meshBasicMaterial color={domReversed ? '#555555' : '#ff0055'} wireframe />
                 </Sphere>
-                <Text font="https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxP.ttf" position={[0, -2, 0]} fontSize={0.8} color="#ffffff" outlineColor="black" outlineWidth={0.05}>
+                <Text font="/Roboto-Regular.ttf" position={[0, -2, 0]} fontSize={0.8} color="#ffffff" outlineColor="black" outlineWidth={0.05}>
                     {domReversed ? 'РАССЕЯННОСТЬ' : 'ДОМИНАНТА'}
                 </Text>
             </group>
@@ -143,7 +143,7 @@ export default function MicroCosmos() {
                 <Sphere args={[1, 16, 16]}>
                     <meshBasicMaterial color={absReversed ? '#888888' : '#00ffbb'} wireframe />
                 </Sphere>
-                <Text font="https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxP.ttf" position={[0, -2, 0]} fontSize={0.8} color="#ffffff" outlineColor="black" outlineWidth={0.05}>
+                <Text font="/Roboto-Regular.ttf" position={[0, -2, 0]} fontSize={0.8} color="#ffffff" outlineColor="black" outlineWidth={0.05}>
                     {absReversed ? 'БУКВАЛЬНОСТЬ' : 'АБСТРАКЦИЯ'}
                 </Text>
             </group>
@@ -160,7 +160,7 @@ export default function MicroCosmos() {
                     <icosahedronGeometry args={[1.3, 1]} />
                     <meshBasicMaterial color={mutReversed ? '#666666' : '#ff8800'} wireframe />
                 </mesh>
-                <Text font="https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxP.ttf" position={[0, -2.5, 0]} fontSize={0.8} color="#ffffff" outlineColor="black" outlineWidth={0.05}>
+                <Text font="/Roboto-Regular.ttf" position={[0, -2.5, 0]} fontSize={0.8} color="#ffffff" outlineColor="black" outlineWidth={0.05}>
                     {mutReversed ? 'СТАГНАЦИЯ' : 'МУТАЦИЯ'}
                 </Text>
             </group>
