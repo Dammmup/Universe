@@ -20,7 +20,7 @@
         "react": "18.2.0",
         "react-dom": "18.2.0",
         "tailwind-merge": "^2.3.0",
-        "three": "^0.164.0",
+        "three": "^0.150.1",
         "zustand": "^5.0.11"
     },
     "devDependencies": {
