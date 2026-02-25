@@ -534,9 +534,9 @@ function Mercury({ reversedFactors, setActiveFactor }) {
                     <meshStandardMaterial map={tex} roughness={0.75} metalness={0}
                         emissive={isRev ? '#332211' : '#554433'} emissiveIntensity={isRev ? 0.18 : 0.35} />
                 </mesh>
-                <Text font="/Roboto-Regular.ttf" position={[0, 1.4, 0]} fontSize={0.7} color="#cccccc"
+                <Text  position={[0, 1.4, 0]} fontSize={0.7} color="#cccccc"
                     anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.04}>Меркурий</Text>
-                <Text font="/Roboto-Regular.ttf" position={[0, 0.7, 0]} fontSize={0.55} color={isRev ? '#88aacc' : '#ffaa44'}
+                <Text  position={[0, 0.7, 0]} fontSize={0.55} color={isRev ? '#88aacc' : '#ffaa44'}
                     anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.04}>
                     {isRev ? '▼ остывание' : '▶ нагревание'}
                 </Text>
@@ -619,9 +619,9 @@ function EarthSystem({ reversedFactors, setActiveFactor }) {
                         <meshBasicMaterial color={isRev ? '#ff4422' : '#4488ff'} wireframe transparent opacity={0.2} />
                     </mesh>
 
-                    <Text font="/Roboto-Regular.ttf" position={[0, 2.8, 0]} fontSize={0.9} color="#ffffff"
+                    <Text  position={[0, 2.8, 0]} fontSize={0.9} color="#ffffff"
                         anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.04}>Земля</Text>
-                    <Text font="/Roboto-Regular.ttf" position={[0, 1.8, 0]} fontSize={0.6} color={isRev ? '#ff6644' : '#44aaff'}
+                    <Text  position={[0, 1.8, 0]} fontSize={0.6} color={isRev ? '#ff6644' : '#44aaff'}
                         anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.04}>
                         {isRev ? '▼ АНТИГРАВИТАЦИЯ' : '▶ ГРАВИТАЦИЯ'}
                     </Text>
@@ -638,7 +638,7 @@ function EarthSystem({ reversedFactors, setActiveFactor }) {
                         <ringGeometry args={[2.0, 2.2, 48]} />
                         <meshBasicMaterial color={tidesRev ? '#2266aa' : '#88ccff'} transparent opacity={0.3} side={THREE.DoubleSide} />
                     </mesh>
-                    <Text font="/Roboto-Regular.ttf" position={[0, -2.4, 0]} fontSize={0.5} color={tidesRev ? '#88aacc' : '#aaddff'}
+                    <Text  position={[0, -2.4, 0]} fontSize={0.5} color={tidesRev ? '#88aacc' : '#aaddff'}
                         anchorX="center" anchorY="top" outlineColor="black" outlineWidth={0.04}>
                         {tidesRev ? 'ОТЛИВЫ ▼' : 'ПРИЛИВЫ ▶'}
                     </Text>
@@ -685,9 +685,9 @@ function Mars({ reversedFactors, setActiveFactor }) {
                 {/* Тонкая пылевая атмосфера */}
                 <AtmoGlow radius={1.12} color="#cc6633" opacity={0.08} />
 
-                <Text font="/Roboto-Regular.ttf" position={[0, 1.7, 0]} fontSize={0.8} color="#ff8866"
+                <Text  position={[0, 1.7, 0]} fontSize={0.8} color="#ff8866"
                     anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.04}>Марс</Text>
-                <Text font="/Roboto-Regular.ttf" position={[0, 0.85, 0]} fontSize={0.58} color={isRev ? '#aaddff' : '#cc9988'}
+                <Text  position={[0, 0.85, 0]} fontSize={0.58} color={isRev ? '#aaddff' : '#cc9988'}
                     anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.04}>
                     {isRev ? '▼ оттепель' : '▶ замерзание'}
                 </Text>
@@ -747,7 +747,7 @@ function Sun({ isReversed, setActiveFactor }) {
             {/* Лучи излучения */}
             <SunCorona isReversed={isReversed} />
 
-            <Text font="/Roboto-Regular.ttf" position={[0, 7, 0]} fontSize={1.2} color={isReversed ? '#dd6633' : '#ffcc00'}
+            <Text  position={[0, 7, 0]} fontSize={1.2} color={isReversed ? '#dd6633' : '#ffcc00'}
                 anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.05}>
                 {isReversed ? 'УГАСАНИЕ' : 'СОЛНЦЕ'}
             </Text>
@@ -798,7 +798,7 @@ function Comet({ isReversed, setActiveFactor }) {
                 onPointerOut={() => { document.body.style.cursor = 'auto'; }}>
                 <mesh><sphereGeometry args={[0.7, 20, 20]} /><meshBasicMaterial color="#ffffff" /></mesh>
                 <mesh><sphereGeometry args={[1.5, 16, 16]} /><meshBasicMaterial color={isReversed ? '#2244aa' : '#88ccff'} transparent opacity={0.2} /></mesh>
-                <Text font="/Roboto-Regular.ttf" position={[0, 2.5, 0]} fontSize={1.1} color={isReversed ? '#aaddff' : '#ffffff'}
+                <Text  position={[0, 2.5, 0]} fontSize={1.1} color={isReversed ? '#aaddff' : '#ffffff'}
                     anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.05}>
                     {isReversed ? 'ЗАМЕДЛЕНИЕ' : 'УСКОРЕНИЕ'}
                 </Text>
@@ -832,11 +832,11 @@ function FloatingFactor({ position, factorId, label, reverseLabel, color, revers
                 {shape === 'icosahedron' && <icosahedronGeometry args={[1.5, 0]} />}
                 <meshBasicMaterial color={col} wireframe />
             </mesh>
-            <Text font="/Roboto-Regular.ttf" position={[0, 3, 0]} fontSize={1.1} color={col}
+            <Text  position={[0, 3, 0]} fontSize={1.1} color={col}
                 anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.05}>
                 {isReversed ? reverseLabel : label}
             </Text>
-            <Text font="/Roboto-Regular.ttf" position={[0, 1.8, 0]} fontSize={0.6} color="#ffffff" fillOpacity={0.4}
+            <Text  position={[0, 1.8, 0]} fontSize={0.6} color="#ffffff" fillOpacity={0.4}
                 anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.03}>▶ кликни</Text>
         </group>
     );

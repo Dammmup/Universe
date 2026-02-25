@@ -631,7 +631,7 @@ function FactorTrigger({ pos, factorId, label, warn = false, color = '#ffffaa' }
                 <octahedronGeometry args={[0.7, 0]} />
                 <meshBasicMaterial color={c} wireframe />
             </mesh>
-            <Text font="/Roboto-Regular.ttf" 
+            <Text
                 position={[0, -1.3, 0]}
                 fontSize={0.42}
                 color="white"
