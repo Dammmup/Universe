@@ -495,7 +495,7 @@ function Moon({ earthPosRef, reversedFactors, setActiveFactor }) {
                     </mesh>
                 )}
 
-                <Text font="/Roboto-Regular.ttf" position={[0, 0.8, 0]} fontSize={0.45} color={moonRev ? '#88aacc' : '#ffffaa'}
+                <Text font="https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxP.ttf" position={[0, 0.8, 0]} fontSize={0.45} color={moonRev ? '#88aacc' : '#ffffaa'}
                     anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.04}>
                     {moonRev ? 'ПОГЛОЩЕНИЕ' : 'ОТРАЖЕНИЕ'}
                 </Text>
