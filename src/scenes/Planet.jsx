@@ -1,6 +1,6 @@
 import React, { useRef, useMemo, useEffect, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Text, Torus } from '@react-three/drei';
+import { Line, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore } from '../store';
 import gsap from 'gsap';
@@ -18,9 +18,8 @@ function sph(r, phi, theta) {
 
 /** Кватернион «смотреть от центра сферы» по нормали в точке XYZ */
 function surfaceQuaternion(pos) {
-    const up = new THREE.Vector3(0, 1, 0);
-    const norm = new THREE.Vector3(...pos).normalize();
-    return new THREE.Quaternion().setFromUnitVectors(up, norm);
+    SURFACE_NORMAL.fromArray(pos).normalize();
+    return SURFACE_QUATERNION.setFromUnitVectors(SURFACE_UP, SURFACE_NORMAL);
 }
 
 /** Случайное число в диапазоне [a, b) */
@@ -30,6 +29,9 @@ function rnd(a, b) { return a + Math.random() * (b - a); }
 
 const R = 10;            // радиус планеты
 const HALF = Math.PI / 2; // 90°
+const SURFACE_UP = new THREE.Vector3(0, 1, 0);
+const SURFACE_NORMAL = new THREE.Vector3();
+const SURFACE_QUATERNION = new THREE.Quaternion();
 
 // ─── Генерация статичных данных (useMemo-safe) ────────────────────────────────
 
@@ -204,7 +206,7 @@ function SkySystem({ stars, reversedFactors }) {
     );
 }
 
-function Ocean({ reversed }) {
+function Ocean() {
     const ref = useRef();
     useFrame((state) => {
         if (!ref.current) return;
@@ -496,6 +498,7 @@ function CivBuildingsInstanced({ buildings, reversed }) {
     const ref = useRef();
     const dummy = useMemo(() => new THREE.Object3D(), []);
     const colors = useMemo(() => buildings.map(b => new THREE.Color(b.color)), [buildings]);
+    const ruinsColor = useMemo(() => new THREE.Color(0x333322), []);
 
     // Хранение текущего scale Y для плавной анимации
     const currentScales = useRef(new Float32Array(buildings.length).fill(0.01));
@@ -511,20 +514,18 @@ function CivBuildingsInstanced({ buildings, reversed }) {
     useFrame((state, delta) => {
         if (!ref.current) return;
 
-        const ruinsColor = new THREE.Color(0x333322);
-
         buildings.forEach((b, i) => {
             const curY = currentScales.current[i];
-            let nextY = curY;
-
             if (reversed) {
-                nextY = curY + (b.height * 0.3 - curY) * delta * 0.5;
+                const nextY = curY + (b.height * 0.3 - curY) * delta * 0.5;
                 ref.current.setColorAt(i, ruinsColor);
+                currentScales.current[i] = nextY;
             } else {
-                nextY = Math.min(1.0, curY + delta * 0.3);
+                const nextY = Math.min(1.0, curY + delta * 0.3);
                 ref.current.setColorAt(i, colors[i]);
+                currentScales.current[i] = nextY;
             }
-            currentScales.current[i] = nextY;
+            const nextY = currentScales.current[i];
 
             dummy.position.set(...b.pos);
             dummy.quaternion.copy(surfaceQuaternion(b.pos));
@@ -648,6 +649,73 @@ function FactorTrigger({ pos, factorId, label, warn = false, color = '#ffffaa' }
     );
 }
 
+function SurfaceMarker({ pos, label, color, size = 0.52, marker = 'sphere' }) {
+    const ref = useRef();
+    useFrame((state) => {
+        if (!ref.current) return;
+        ref.current.scale.setScalar(1 + Math.sin(state.clock.elapsedTime * 2 + pos[0]) * 0.08);
+    });
+
+    return (
+        <group position={pos} quaternion={surfaceQuaternion(pos)}>
+            <mesh ref={ref} position={[0, 0.28, 0]}>
+                {marker === 'cone' && <coneGeometry args={[0.28, 0.75, 7]} />}
+                {marker === 'box' && <boxGeometry args={[0.45, 0.55, 0.45]} />}
+                {marker === 'ring' && <torusGeometry args={[0.36, 0.045, 8, 28]} />}
+                {marker === 'sphere' && <sphereGeometry args={[0.25, 14, 14]} />}
+                <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.22} roughness={0.6} />
+            </mesh>
+            <Text
+                font="/Roboto-Regular.ttf"
+                position={[0, 0.95, 0]}
+                fontSize={size}
+                color={color}
+                anchorX="center"
+                anchorY="bottom"
+                outlineColor="black"
+                outlineWidth={0.06}
+            >
+                {label}
+            </Text>
+        </group>
+    );
+}
+
+function PlanetLandmarks({ stage, reversedFactors }) {
+    const roadPoints = useMemo(() => [
+        new THREE.Vector3(...sph(R + 0.22, HALF * 0.95, Math.PI - 0.8)),
+        new THREE.Vector3(...sph(R + 0.22, HALF * 0.85, Math.PI - 0.35)),
+        new THREE.Vector3(...sph(R + 0.22, HALF * 1.05, Math.PI + 0.2)),
+        new THREE.Vector3(...sph(R + 0.22, HALF * 0.92, Math.PI + 0.75)),
+    ], []);
+
+    if (stage === 2) {
+        return (
+            <group>
+                <SurfaceMarker pos={sph(R + 0.45, HALF, -0.45)} label="ОКЕАН" color={reversedFactors.ocean ? '#8a7350' : '#5fc7ff'} marker="ring" />
+                <SurfaceMarker pos={sph(R + 0.5, HALF * 0.72, 0.62)} label="ГОРЫ" color={reversedFactors.tectonics ? '#ff7a55' : '#d6d6e8'} marker="cone" />
+                <SurfaceMarker pos={sph(R + 0.48, HALF * 1.26, -0.72)} label="ЛЕСА" color={reversedFactors.photosynthesis ? '#9b7540' : '#62ff75'} marker="cone" />
+                <SurfaceMarker pos={sph(R + 0.52, HALF * 1.45, 0.95)} label="СТАИ" color={reversedFactors.migration ? '#8899aa' : '#e9f7ff'} marker="sphere" size={0.45} />
+                <SurfaceMarker pos={sph(R + 0.5, HALF * 0.48, -1.18)} label="СИЯНИЕ" color={reversedFactors.aurora ? '#669988' : '#55ffd5'} marker="ring" size={0.42} />
+            </group>
+        );
+    }
+
+    return (
+        <group>
+            <Line points={roadPoints} color={reversedFactors.trade ? '#665544' : '#ffdd88'} lineWidth={2} transparent opacity={0.75} />
+            <SurfaceMarker pos={sph(R + 0.55, HALF, Math.PI)} label="ГОРОД" color={reversedFactors.urbanization ? '#777777' : '#c8ddff'} marker="box" />
+            <SurfaceMarker pos={sph(R + 0.55, HALF * 0.65, Math.PI + 0.72)} label="ЗАВОД" color={reversedFactors.ecology ? '#88ffaa' : '#ff8844'} marker="box" size={0.46} />
+            <SurfaceMarker pos={sph(R + 0.55, HALF * 1.35, Math.PI - 0.72)} label="КУЛЬТУРА" color={reversedFactors.culture ? '#9a7777' : '#ffb6f0'} marker="sphere" size={0.42} />
+            <SurfaceMarker pos={sph(R + 0.55, HALF * 1.18, Math.PI + 1.42)} label="ЭНЕРГИЯ" color={reversedFactors.energy ? '#777777' : '#ffaa55'} marker="ring" size={0.42} />
+            <SurfaceMarker pos={sph(R + 0.55, HALF * 0.85, Math.PI - 1.25)} label="ЯЗЫК" color={reversedFactors.language ? '#888888' : '#ffffff'} marker="sphere" size={0.34} />
+            <SurfaceMarker pos={sph(R + 0.55, HALF * 1.08, Math.PI - 1.95)} label="ПРАВО" color={reversedFactors.law ? '#b36a6a' : '#9ad7ff'} marker="box" size={0.34} />
+            <SurfaceMarker pos={sph(R + 0.55, HALF * 1.52, Math.PI + 1.68)} label="ШКОЛА" color={reversedFactors.education ? '#9a7d55' : '#ffe38a'} marker="box" size={0.34} />
+            <SurfaceMarker pos={sph(R + 0.55, HALF * 0.52, Math.PI + 1.95)} label="МЕД." color={reversedFactors.medicine ? '#aa5555' : '#7dffb0'} marker="sphere" size={0.34} />
+        </group>
+    );
+}
+
 // ─── Главный компонент ────────────────────────────────────────────────────────
 export default function Planet() {
     const { stage, reversedFactors } = useStore();
@@ -718,6 +786,8 @@ export default function Planet() {
 
                 {/* Интерференция — волновые кольца */}
                 <InterferenceRings reversed={!!rf['interference']} />
+
+                <PlanetLandmarks stage={stage} reversedFactors={rf} />
 
                 {/* ── ФАКТОРЫ STAGE 2 ── */}
                 {stage === 2 && (
@@ -841,6 +911,30 @@ export default function Planet() {
                             factorId="energy"
                             label="ЭНЕРГИЯ / ИСТОЩЕНИЕ"
                             color="#ff8844"
+                        />
+                        <FactorTrigger
+                            pos={sph(R + 2.5, HALF * 0.9, Math.PI - 2.0)}
+                            factorId="language"
+                            label="ЯЗЫК / ШУМ"
+                            color="#ffffff"
+                        />
+                        <FactorTrigger
+                            pos={sph(R + 2.5, HALF * 1.35, Math.PI - 2.25)}
+                            factorId="law"
+                            label="ПРАВО / ПРОИЗВОЛ"
+                            color="#9ad7ff"
+                        />
+                        <FactorTrigger
+                            pos={sph(R + 2.5, HALF * 1.62, Math.PI + 1.85)}
+                            factorId="education"
+                            label="ОБРАЗОВАНИЕ / НЕВЕЖЕСТВО"
+                            color="#ffe38a"
+                        />
+                        <FactorTrigger
+                            pos={sph(R + 2.5, HALF * 0.38, Math.PI + 1.95)}
+                            factorId="medicine"
+                            label="МЕДИЦИНА / ЭПИДЕМИЯ"
+                            color="#7dffb0"
                         />
                     </>
                 )}

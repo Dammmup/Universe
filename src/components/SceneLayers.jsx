@@ -197,7 +197,7 @@ const LAYERS_DATA = [
 
 export default function SceneLayers({ onLayerInteract, onRestart }) {
     const [activeNodeId, setActiveNodeId] = useState(null);
-    const [clickCounts, setClickCounts] = useState({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 });
+    const [, setClickCounts] = useState({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 });
 
     const handleNodeClick = (layerId, nodeId) => {
         setActiveNodeId(prev => (prev === nodeId ? null : nodeId));

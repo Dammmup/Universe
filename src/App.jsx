@@ -1,13 +1,14 @@
-import React, { Suspense, useEffect, useRef } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Html } from '@react-three/drei';
 import { useStore } from './store';
 import gsap from 'gsap';
 
-import BigBang from './scenes/BigBang';
-import Cosmos from './scenes/Cosmos';
-import Planet from './scenes/Planet';
-import MicroCosmos from './scenes/MicroCosmos';
+const BigBang = lazy(() => import('./scenes/BigBang'));
+const Cosmos = lazy(() => import('./scenes/Cosmos'));
+const Planet = lazy(() => import('./scenes/Planet'));
+const MicroCosmos = lazy(() => import('./scenes/MicroCosmos'));
+const HumanBody = lazy(() => import('./scenes/HumanBody'));
 
 const FACTORS_DATA = {
     // Stage 1: Макрокосмос
@@ -31,6 +32,13 @@ const FACTORS_DATA = {
         reverseName: 'Угасание',
         reverseDescription: 'Красный гигант коллапсирует в белый карлик. Свет гаснет, орбиты замерзают.',
         influence: 'Водород сливается в гелий, высвобождая энергию, которая поддерживает жизнь на 8 планетах.'
+    },
+    radiation: {
+        name: 'Излучение',
+        description: 'Потоки фотонов и заряженных частиц уходят от Солнца во все стороны, нагревая планеты и меняя химические реакции.',
+        reverseName: 'Экранирование',
+        reverseDescription: 'Магнитные поля, атмосферы и тени поглощают поток. Энергия не исчезает, но перестаёт достигать поверхности.',
+        influence: 'Жизнь балансирует между полезным светом и разрушительной радиацией: без излучения нет энергии, без защиты нет устойчивых клеток.'
     },
     heating: {
         name: 'Нагревание',
@@ -218,6 +226,34 @@ const FACTORS_DATA = {
         reverseDescription: 'Ресурсы иссякают. Без энергии останавливаются заводы, города, связь. Возврат к ручному труду.',
         influence: 'Переход от биомассы к углю поднял производительность в 10 раз. Каждый следующий переход — ещё больше.'
     },
+    language: {
+        name: 'Язык',
+        description: 'Символическая система связывает людей через время: просьбы, законы, песни, инструкции и мифы.',
+        reverseName: 'Немота / Шум',
+        reverseDescription: 'Общий код рушится. Слова перестают совпадать по смыслу, а договорённости превращаются в шум.',
+        influence: 'Язык масштабирует мышление: идея может жить дольше тела и переходить между поколениями.'
+    },
+    law: {
+        name: 'Право',
+        description: 'Правила ограничивают силу, закрепляют ответственность и делают сотрудничество предсказуемым.',
+        reverseName: 'Произвол',
+        reverseDescription: 'Решает не принцип, а страх, статус или случай. Доверие исчезает быстрее, чем строится.',
+        influence: 'Право — социальная нервная система: оно сообщает обществу, где проходит граница допустимого.'
+    },
+    education: {
+        name: 'Образование',
+        description: 'Передача навыков и моделей мира ускоряет развитие: ребёнку не нужно заново открывать огонь, письмо и математику.',
+        reverseName: 'Невежество',
+        reverseDescription: 'Знание не передаётся или искажается. Ошибки прошлого возвращаются как новые открытия.',
+        influence: 'Образование превращает личный опыт в коллективный запас прочности.'
+    },
+    medicine: {
+        name: 'Медицина',
+        description: 'Диагностика, гигиена, лекарства и хирургия продлевают жизнь и уменьшают цену случайности.',
+        reverseName: 'Эпидемия',
+        reverseDescription: 'Защита слабеет. Болезнь становится социальной силой, меняя города, страхи и маршруты.',
+        influence: 'Медицина соединяет биологию и культуру: забота становится технологией выживания.'
+    },
 
     // Stage 4: Микрокосмос
     interferenceNeuro: {
@@ -247,6 +283,169 @@ const FACTORS_DATA = {
         reverseName: 'Стагнация (Био)',
         reverseDescription: 'Генетическая неизменность: популяция теряет способность адаптироваться к новым условиям.',
         influence: 'Ошибки копирования ДНК — двигатель эволюции.'
+    },
+    cellMembrane: {
+        name: 'Клеточная мембрана',
+        description: 'Полупроницаемая граница клетки: она решает, что войдёт, что выйдет и какие сигналы будут услышаны.',
+        reverseName: 'Мембранная протечка',
+        reverseDescription: 'Граница теряет избирательность. Ионы, токсины и сигналы смешиваются, клетка теряет устойчивость.',
+        influence: 'Мембрана делает живую систему отдельной от среды, но не отрезанной от неё.'
+    },
+    dnaRepair: {
+        name: 'Ремонт ДНК',
+        description: 'Ферменты находят повреждения генетического текста и чинят их до того, как ошибка станет судьбой клетки.',
+        reverseName: 'Накопление ошибок',
+        reverseDescription: 'Повреждения пропускаются. Растёт риск дефектных белков, старения ткани и неконтролируемого деления.',
+        influence: 'Жизнь держится не на идеальной точности, а на постоянном исправлении неизбежных ошибок.'
+    },
+    synapse: {
+        name: 'Синапс',
+        description: 'Место, где один нейрон передаёт сигнал другому через электрический импульс и химический выброс.',
+        reverseName: 'Разрыв связи',
+        reverseDescription: 'Сигнал не доходит или приходит искажённым. Сеть теряет связность, а мысль распадается на фрагменты.',
+        influence: 'Синапсы превращают отдельные клетки в память, привычку, внимание и внутренний голос.'
+    },
+    neurotransmitter: {
+        name: 'Нейромедиаторы',
+        description: 'Химические посредники передают настроение, мотивацию, тревогу, удовольствие и торможение между нейронами.',
+        reverseName: 'Химический шум',
+        reverseDescription: 'Слишком много, слишком мало или не вовремя: сигнал становится туманным, а поведение — нестабильным.',
+        influence: 'Сознание имеет химическую погоду: даже мысль зависит от концентрации молекул в синапсе.'
+    },
+    myelin: {
+        name: 'Миелин',
+        description: 'Жировая изоляция аксона ускоряет нервные импульсы и защищает дальнюю передачу сигнала.',
+        reverseName: 'Демиелинизация',
+        reverseDescription: 'Изоляция разрушается. Сигнал замедляется, сбивается или гаснет до того, как достигнет цели.',
+        influence: 'Скорость реакции, координация и ясность сети зависят от качества этой биологической изоляции.'
+    },
+    mitochondria: {
+        name: 'Митохондрии',
+        description: 'Внутренние энергетические станции клетки производят АТФ, питающий движение, ремонт и мышление.',
+        reverseName: 'Энергетический провал',
+        reverseDescription: 'Клетка не получает достаточно энергии. Ремонт, иммунитет и нервная активность переходят в экономный режим.',
+        influence: 'Большая часть сложной жизни стала возможна после симбиоза с митохондриями.'
+    },
+    proteinSynthesis: {
+        name: 'Сборка белка',
+        description: 'Рибосомы читают инструкции РНК и собирают белки — рабочие формы тела, ферментов и рецепторов.',
+        reverseName: 'Дефект сворачивания',
+        reverseDescription: 'Белок собран или сложен неверно. Молекула не выполняет функцию и может отравлять клетку.',
+        influence: 'Гены важны потому, что становятся белками: структура превращается в действие.'
+    },
+    attention: {
+        name: 'Внимание',
+        description: 'Нервная система усиливает одни сигналы и приглушает другие, собирая мир в управляемый фокус.',
+        reverseName: 'Расфокус',
+        reverseDescription: 'Стимулы конкурируют без отбора. Сознание скользит по поверхности и быстро теряет направление.',
+        influence: 'Внимание — узкое горлышко реальности: через него бесконечный поток становится опытом.'
+    },
+    dreaming: {
+        name: 'Сновидение',
+        description: 'Мозг комбинирует память, эмоции и прогнозы в ночные образы, проверяя внутренние модели мира.',
+        reverseName: 'Пустой сон',
+        reverseDescription: 'Образность исчезает или не запоминается. Восстановление остаётся, но символическая переработка слабеет.',
+        influence: 'Сновидения показывают, что реальность внутри человека умеет строить миры без внешнего света.'
+    },
+
+    // Stage 5: Человек, тело и эмоции
+    circulation: {
+        name: 'Кровообращение',
+        description: 'Сердце прокачивает кровь по артериям и венам, доставляя кислород, тепло, гормоны и иммунные клетки.',
+        reverseName: 'Ишемия',
+        reverseDescription: 'Поток перекрыт. Ткани остаются без кислорода, клетки переходят в аварийный режим и начинают погибать.',
+        influence: 'Циркуляция превращает тело из набора органов в единую систему распределения энергии.'
+    },
+    breathing: {
+        name: 'Дыхание',
+        description: 'Лёгкие обменивают кислород и CO₂, связывая внутренний метаболизм с атмосферой планеты.',
+        reverseName: 'Гипоксия',
+        reverseDescription: 'Кислорода не хватает. Сознание мутнеет, мышцы слабеют, сердце ускоряется, пытаясь компенсировать дефицит.',
+        influence: 'Каждый вдох — договор между телом и средой: клеткам нужен кислород, миру нужен выдохнутый углерод.'
+    },
+    memory: {
+        name: 'Память',
+        description: 'Нейронные связи удерживают опыт, язык, лица, опасности и путь домой.',
+        reverseName: 'Амнезия',
+        reverseDescription: 'Связи распадаются. События теряют контекст, а личность лишается внутренней истории.',
+        influence: 'Память делает время личным: прошлое продолжает действовать внутри настоящего.'
+    },
+    emotion: {
+        name: 'Эмоция',
+        description: 'Радость, страх, гнев и печаль быстро размечают мир значимостью до того, как разум всё объяснит.',
+        reverseName: 'Эмоциональное онемение',
+        reverseDescription: 'Сигналы приглушены. Мир остаётся понятным, но теряет вес, цвет и внутреннее притяжение.',
+        influence: 'Эмоции — не шум, а система приоритетов: они говорят телу, что важно прямо сейчас.'
+    },
+    stress: {
+        name: 'Стресс',
+        description: 'Симпатическая система мобилизует тело: пульс растёт, кровь уходит к мышцам, внимание сужается.',
+        reverseName: 'Восстановление',
+        reverseDescription: 'Парасимпатическая система возвращает дыхание, пищеварение, сон и способность чувствовать нюансы.',
+        influence: 'Стресс спасает в угрозе, но разрушает при бесконечном включении.'
+    },
+    immunity: {
+        name: 'Иммунитет',
+        description: 'Клетки защиты отличают своё от чужого, запоминают вторжения и ремонтируют повреждения.',
+        reverseName: 'Аутоиммунность',
+        reverseDescription: 'Система распознавания ошибается и атакует собственные ткани как врага.',
+        influence: 'Иммунитет — это граница личности на биологическом уровне.'
+    },
+    digestion: {
+        name: 'Обмен веществ',
+        description: 'Пища разбирается на молекулы, превращаясь в энергию, ткань, тепло и химические сигналы.',
+        reverseName: 'Токсичность',
+        reverseDescription: 'Баланс нарушен: избыток, дефицит или яд перегружают печень, кишечник и энергетические циклы.',
+        influence: 'Метаболизм связывает выбор, среду и тело: то, что вошло извне, становится нами.'
+    },
+    movement: {
+        name: 'Движение',
+        description: 'Мышцы и суставы превращают намерение в действие: шаг, жест, бегство, объятие, труд.',
+        reverseName: 'Паралич',
+        reverseDescription: 'Сигнал не доходит или ткань не отвечает. Намерение остаётся внутри, не становясь движением.',
+        influence: 'Движение — язык тела, через который сознание меняет внешний мир.'
+    },
+    empathy: {
+        name: 'Эмпатия',
+        description: 'Мозг моделирует состояние другого человека, позволяя чувствовать боль, радость и намерение не только своё.',
+        reverseName: 'Отчуждение',
+        reverseDescription: 'Другой превращается в объект или угрозу. Связь рвётся, даже если люди стоят рядом.',
+        influence: 'Эмпатия делает общество возможным: она соединяет нервные системы без проводов.'
+    },
+    hormones: {
+        name: 'Гормоны',
+        description: 'Эндокринная система рассылает химические команды: рост, голод, либидо, тревогу, привязанность и сон.',
+        reverseName: 'Дисрегуляция',
+        reverseDescription: 'Сигналы становятся слишком сильными, слабыми или несвоевременными. Тело спорит само с собой.',
+        influence: 'Гормоны — медленная внутренняя сеть связи, которая меняет настроение и поведение через химию.'
+    },
+    pain: {
+        name: 'Боль',
+        description: 'Сигнал повреждения заставляет тело защищаться, менять позу, отступать и учиться осторожности.',
+        reverseName: 'Анестезия',
+        reverseDescription: 'Сигнал приглушён. Становится легче, но граница повреждения больше не предупреждает сознание.',
+        influence: 'Боль неприятна, потому что она должна быть услышана быстрее любых мыслей.'
+    },
+    sleep: {
+        name: 'Сон',
+        description: 'Мозг очищает метаболический шум, укрепляет память и восстанавливает эмоциональную устойчивость.',
+        reverseName: 'Бессонница',
+        reverseDescription: 'Восстановление не включается. Внимание, иммунитет и настроение постепенно теряют устойчивость.',
+        influence: 'Сон — не пауза в жизни, а ночная сборка личности и тела.'
+    },
+    thermoregulation: {
+        name: 'Терморегуляция',
+        description: 'Сосуды, кожа, пот и дрожь удерживают внутреннюю температуру в узком коридоре жизни.',
+        reverseName: 'Перегрев / Озноб',
+        reverseDescription: 'Коридор нарушен: ферменты работают хуже, сердце ускоряется, сознание становится уязвимым.',
+        influence: 'Человек живёт не при любой температуре, а внутри тонко настроенного теплового режима.'
+    },
+    identity: {
+        name: 'Идентичность',
+        description: 'Память, тело, отношения и выбор собираются в ощущение “я”: непрерывного субъекта опыта.',
+        reverseName: 'Диссоциация',
+        reverseDescription: 'Связность ослабевает. Тело, эмоции и история могут переживаться как чужие или разорванные.',
+        influence: 'Идентичность — самая хрупкая и самая глубокая интеграция человеческой реальности.'
     }
 };
 
@@ -283,12 +482,18 @@ function CameraTransition() {
                 });
             } else if (stage === 4 && prevStageRef.current === 3) {
                 // Входим в микрокосмос
-                camera.position.z = 80;
-                gsap.to(camera.position, { z: 25, duration: 1.5, ease: "power2.out" });
+                camera.position.z = 35;
+                gsap.to(camera.position, { z: 12, duration: 1.5, ease: "power2.out" });
             } else if (stage === 3 && prevStageRef.current === 4) {
                 // Возврат из микрокосмоса на планету
                 camera.position.z = 10;
                 gsap.to(camera.position, { z: 15, duration: 1.5, ease: "power2.out" });
+            } else if (stage === 5 && prevStageRef.current === 4) {
+                camera.position.set(0, 0, 12);
+                gsap.to(camera.position, { z: 10, duration: 1.4, ease: "power2.out" });
+            } else if (stage === 4 && prevStageRef.current === 5) {
+                camera.position.set(0, 0, 18);
+                gsap.to(camera.position, { z: 12, duration: 1.2, ease: "power2.out" });
             }
         }
         prevStageRef.current = stage;
@@ -298,19 +503,21 @@ function CameraTransition() {
 }
 
 export default function App() {
-    const { stage, isExploded, activeFactorId, reversedFactors, toggleReverse, clearFactor } = useStore();
+    const { stage, isExploded, activeFactorId, reversedFactors, toggleReverse, clearFactor, resetJourney, nextStage } = useStore();
+    const [humanLayer, setHumanLayer] = useState('organs');
     const isReversed = reversedFactors[activeFactorId] || false;
 
     useEffect(() => {
         let isScrolling = false;
+        let scrollTimer = null;
         const handleWheel = (e) => {
             // Если зажат Ctrl/Cmd — это pinch-zoom браузера или OrbitControls zoom, игнорируем
             if (e.ctrlKey || e.metaKey) return;
 
             const state = useStore.getState();
 
-            // На stage >= 1 реагируем только на крупный скролл (deltaY > 80) чтобы не мешать zoom
-            const threshold = state.stage >= 1 ? 80 : 5;
+            // На микро-уровне колесо чаще нужно для приближения факторов, поэтому переход вынесен в кнопку.
+            const threshold = state.stage === 4 ? 320 : (state.stage >= 1 ? 80 : 5);
             if (Math.abs(e.deltaY) < threshold) return;
 
             if (isScrolling) return;
@@ -326,20 +533,23 @@ export default function App() {
                 state.prevStage();
             }
 
-            setTimeout(() => { isScrolling = false; }, 1200);
+            scrollTimer = setTimeout(() => { isScrolling = false; }, 1200);
         };
 
         window.addEventListener('wheel', handleWheel, { passive: true });
-        return () => window.removeEventListener('wheel', handleWheel);
+        return () => {
+            window.removeEventListener('wheel', handleWheel);
+            if (scrollTimer) clearTimeout(scrollTimer);
+        };
     }, []);
 
     return (
-        <div className="relative w-screen h-screen bg-black overflow-hidden font-sans text-white">
+        <div className={`relative w-screen h-screen overflow-hidden font-sans transition-colors duration-500 ${stage === 5 ? 'bg-white text-slate-950' : 'bg-black text-white'}`}>
 
             {/* 3D Canvas */}
             <div className="absolute inset-0">
                 <Canvas camera={{ position: [0, 0, 5], fov: 60 }} dpr={[1, 2]}>
-                    <color attach="background" args={['#000000']} />
+                    <color attach="background" args={[stage === 5 ? '#ffffff' : '#000000']} />
 
                     <CameraTransition />
 
@@ -349,9 +559,9 @@ export default function App() {
                             key={stage}
                             enableZoom={true}
                             enablePan={false}
-                            zoomSpeed={0.6}
-                            minDistance={5}
-                            maxDistance={200}
+                            zoomSpeed={stage === 4 ? 1.05 : 0.6}
+                            minDistance={stage === 4 ? 1.4 : 5}
+                            maxDistance={stage === 4 ? 80 : 200}
                             dampingFactor={0.08}
                             enableDamping
                             target={[0, 0, 0]}
@@ -371,6 +581,7 @@ export default function App() {
                         {stage === 1 && <Cosmos />}
                         {(stage === 2 || stage === 3) && <Planet />}
                         {stage === 4 && <MicroCosmos />}
+                        {stage === 5 && <HumanBody mode={humanLayer} />}
                     </Suspense>
 
                 </Canvas>
@@ -410,12 +621,39 @@ export default function App() {
                         <p className="tracking-widest uppercase text-sm mb-2 text-fuchsia-400">
                             Микро-уровень: Рождение Сознания
                         </p>
-                        <p className="text-xs text-white/40 mb-6 font-light">
-                            Внутри клеток и синапсов. Изучай. Скролль вверх для возврата.
+                        <p className="text-xs text-white/40 mb-4 font-light">
+                            Внутри клеток и синапсов. Колесо мыши приближает факторы.
                         </p>
                         <button
-                            onClick={() => window.location.reload()}
-                            className="px-6 py-2 border border-white/20 rounded-full text-xs uppercase tracking-wider hover:bg-white hover:text-black transition-colors"
+                            onClick={nextStage}
+                            className="px-5 py-2 border border-fuchsia-300/40 rounded-full text-xs uppercase tracking-wider text-fuchsia-100 hover:bg-fuchsia-300 hover:text-black transition-colors"
+                        >
+                            К человеку
+                        </button>
+                    </div>
+                )}
+                {stage === 5 && (
+                    <div className="text-slate-700 animate-fade-in relative z-50 pointer-events-auto">
+                        <p className="tracking-widest uppercase text-sm mb-2 text-rose-600">
+                            Антропо-уровень: Тело, Эмоции, Личность
+                        </p>
+                        <div className="inline-flex items-center gap-1 p-1 mb-4 rounded-full border border-slate-300 bg-white/75 shadow-sm backdrop-blur-md">
+                            <button
+                                onClick={() => setHumanLayer('organs')}
+                                className={`px-4 py-1.5 rounded-full text-[11px] uppercase tracking-wider transition-colors ${humanLayer === 'organs' ? 'bg-cyan-500 text-white' : 'text-slate-500 hover:text-slate-950'}`}
+                            >
+                                Органы
+                            </button>
+                            <button
+                                onClick={() => setHumanLayer('emotions')}
+                                className={`px-4 py-1.5 rounded-full text-[11px] uppercase tracking-wider transition-colors ${humanLayer === 'emotions' ? 'bg-rose-500 text-white' : 'text-slate-500 hover:text-slate-950'}`}
+                            >
+                                Эмоции
+                            </button>
+                        </div>
+                        <button
+                            onClick={resetJourney}
+                            className="px-6 py-2 border border-slate-300 rounded-full text-xs uppercase tracking-wider text-slate-600 hover:bg-slate-950 hover:text-white transition-colors"
                         >
                             Пройти путь снова
                         </button>

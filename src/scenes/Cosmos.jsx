@@ -1,4 +1,4 @@
-import React, { useRef, useMemo } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Text } from '@react-three/drei';
 import * as THREE from 'three';
@@ -392,10 +392,15 @@ function createCircleTexture() {
     return new THREE.CanvasTexture(c);
 }
 
+function useDisposableTexture(texture) {
+    useEffect(() => () => texture?.dispose(), [texture]);
+}
+
 // ─── Звёзды ───────────────────────────────────────────────────
 function StarField() {
     const pointsRef = useRef();
     const tex = useMemo(() => createCircleTexture(), []);
+    useDisposableTexture(tex);
     const [pos, col] = useMemo(() => {
         const count = 5000;
         const p = new Float32Array(count * 3), c = new Float32Array(count * 3);
@@ -457,6 +462,7 @@ function Moon({ earthPosRef, reversedFactors, setActiveFactor }) {
     const groupRef = useRef();
     const angle = useRef(1.2);
     const tex = useMemo(() => generateMoonTexture(), []);
+    useDisposableTexture(tex);
     const ORBIT = 5.5;
 
     const moonRev = !!reversedFactors['moonlight'];
@@ -510,6 +516,7 @@ function Mercury({ reversedFactors, setActiveFactor }) {
     const groupRef = useRef();
     const angle = useRef(0.5);
     const tex = useMemo(() => generateMercuryTexture(), []);
+    useDisposableTexture(tex);
     const RX = 13, RZ = 9;
 
     useFrame((_, delta) => {
@@ -556,6 +563,8 @@ function EarthSystem({ reversedFactors, setActiveFactor }) {
 
     const baseTex = useMemo(() => generateEarthTexture(), []);
     const cloudTex = useMemo(() => generateEarthCloudsTexture(), []);
+    useDisposableTexture(baseTex);
+    useDisposableTexture(cloudTex);
     const RX = 22, RZ = 16;
 
     const isRev = !!reversedFactors['gravity'];
@@ -657,6 +666,7 @@ function Mars({ reversedFactors, setActiveFactor }) {
     const groupRef = useRef();
     const angle = useRef(4.2);
     const tex = useMemo(() => generateMarsTexture(), []);
+    useDisposableTexture(tex);
     const RX = 33, RZ = 24;
 
     useFrame((_, delta) => {
@@ -701,6 +711,7 @@ function Sun({ isReversed, setActiveFactor }) {
     const glowRef = useRef();
     const sunMesh = useRef();
     const sunTex = useMemo(() => generateSunTexture(), []);
+    useDisposableTexture(sunTex);
 
     useFrame((s) => {
         if (glowRef.current) {
@@ -756,14 +767,88 @@ function Sun({ isReversed, setActiveFactor }) {
     );
 }
 
+function SolarRadiation({ isReversed, setActiveFactor }) {
+    const rayRef = useRef();
+    const particleRef = useRef();
+    const rayCount = 42;
+    const particleCount = 180;
+
+    const rays = useMemo(() => {
+        const pos = new Float32Array(rayCount * 2 * 3);
+        for (let i = 0; i < rayCount; i++) {
+            const angle = (i / rayCount) * Math.PI * 2;
+            const wobble = 1 + Math.sin(i * 2.17) * 0.18;
+            const inner = 8.3;
+            const outer = 20 * wobble;
+            pos[i * 6] = Math.cos(angle) * inner;
+            pos[i * 6 + 1] = Math.sin(angle) * inner;
+            pos[i * 6 + 2] = 0;
+            pos[i * 6 + 3] = Math.cos(angle) * outer;
+            pos[i * 6 + 4] = Math.sin(angle) * outer;
+            pos[i * 6 + 5] = 0;
+        }
+        return pos;
+    }, []);
+
+    const particles = useMemo(() => {
+        const pos = new Float32Array(particleCount * 3);
+        for (let i = 0; i < particleCount; i++) {
+            const angle = (i / particleCount) * Math.PI * 2;
+            const radius = 9 + (i % 23) * 0.55;
+            pos[i * 3] = Math.cos(angle) * radius;
+            pos[i * 3 + 1] = Math.sin(angle) * radius;
+            pos[i * 3 + 2] = Math.sin(i * 1.7) * 0.65;
+        }
+        return pos;
+    }, []);
+
+    useFrame((state, delta) => {
+        if (rayRef.current) {
+            rayRef.current.rotation.z += delta * (isReversed ? 0.025 : 0.12);
+            rayRef.current.material.opacity = isReversed ? 0.08 : 0.28 + Math.sin(state.clock.elapsedTime * 1.8) * 0.06;
+        }
+        if (particleRef.current) {
+            particleRef.current.rotation.z -= delta * (isReversed ? 0.04 : 0.35);
+            particleRef.current.material.opacity = isReversed ? 0.12 : 0.75;
+        }
+    });
+
+    return (
+        <group
+            onClick={(e) => { e.stopPropagation(); setActiveFactor('radiation'); }}
+            onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
+            onPointerOut={() => { document.body.style.cursor = 'auto'; }}
+        >
+            <lineSegments ref={rayRef}>
+                <bufferGeometry>
+                    <bufferAttribute attach="attributes-position" count={rayCount * 2} array={rays} itemSize={3} />
+                </bufferGeometry>
+                <lineBasicMaterial color={isReversed ? '#556677' : '#fff0a0'} transparent opacity={0.28} />
+            </lineSegments>
+            <points ref={particleRef}>
+                <bufferGeometry>
+                    <bufferAttribute attach="attributes-position" count={particleCount} array={particles} itemSize={3} />
+                </bufferGeometry>
+                <pointsMaterial color={isReversed ? '#7790aa' : '#fff4aa'} size={0.45} transparent opacity={0.75} depthWrite={false} blending={THREE.AdditiveBlending} />
+            </points>
+            <Text font="/Roboto-Regular.ttf" position={[0, -10.2, 0]} fontSize={0.8} color={isReversed ? '#9bb0cc' : '#fff1a0'}
+                anchorX="center" anchorY="top" outlineColor="black" outlineWidth={0.05}>
+                {isReversed ? 'ЭКРАНИРОВАНИЕ' : 'ИЗЛУЧЕНИЕ'}
+            </Text>
+        </group>
+    );
+}
+
 // ─── Комета ───────────────────────────────────────────────
 function Comet({ isReversed, setActiveFactor }) {
     const groupRef = useRef();
     const angle = useRef(0);
     const tex = useMemo(() => createCircleTexture(), []);
+    useDisposableTexture(tex);
     const tailCount = 200;
     const tailPos = useMemo(() => new Float32Array(tailCount * 3), []);
     const history = useMemo(() => { const h = []; for (let i = 0; i < tailCount; i++) h.push(new THREE.Vector3()); return h; }, []);
+    const historyCursor = useRef(0);
     const tailRef = useRef();
 
     useFrame((_, delta) => {
@@ -774,10 +859,13 @@ function Comet({ isReversed, setActiveFactor }) {
         const tilt = 0.35;
         const y = rawZ * Math.sin(tilt), z = rawZ * Math.cos(tilt);
         if (groupRef.current) groupRef.current.position.set(x, y, z);
-        history.unshift(new THREE.Vector3(x, y, z));
-        if (history.length > tailCount) history.pop();
+        historyCursor.current = (historyCursor.current - 1 + tailCount) % tailCount;
+        history[historyCursor.current].set(x, y, z);
         for (let i = 0; i < tailCount; i++) {
-            if (i < history.length) { tailPos[i * 3] = history[i].x; tailPos[i * 3 + 1] = history[i].y; tailPos[i * 3 + 2] = history[i].z; }
+            const item = history[(historyCursor.current + i) % tailCount];
+            tailPos[i * 3] = item.x;
+            tailPos[i * 3 + 1] = item.y;
+            tailPos[i * 3 + 2] = item.z;
         }
         if (tailRef.current) tailRef.current.geometry.attributes.position.needsUpdate = true;
     });
@@ -867,6 +955,7 @@ export default function Cosmos() {
             <ambientLight intensity={0.28} />
 
             <Sun isReversed={!!reversedFactors['sun']} setActiveFactor={setActiveFactor} />
+            <SolarRadiation isReversed={!!reversedFactors['radiation']} setActiveFactor={setActiveFactor} />
 
             <OrbitRing rx={13} rz={9} color="#aaaaaa" opacity={0.15} />
             <OrbitRing rx={22} rz={16} color="#4488ff" opacity={0.13} />

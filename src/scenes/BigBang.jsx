@@ -26,6 +26,8 @@ export default function BigBang() {
         return new THREE.CanvasTexture(canvas);
     }, []);
 
+    useEffect(() => () => circleTexture.dispose(), [circleTexture]);
+
     // Исходная позиция: все частицы в одной точке [0,0,0]
     const [positions, velocities, colors] = useMemo(() => {
         const pos = new Float32Array(particleCount * 3);
@@ -70,7 +72,8 @@ export default function BigBang() {
                 }
             });
         }
-    }, [isExploded, camera]);
+        return () => gsap.killTweensOf(camera.position);
+    }, [isExploded, camera, setStage]);
 
     // Обработка клика по изначальной точке (на случай если пользователь кликнул вместо скролла)
     const handlePointerDown = () => {
