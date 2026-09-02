@@ -32,19 +32,32 @@ export const useStore = create((set) => ({
     isFactorReversed: (id) => Boolean(useStore.getState().reversedFactors[id]),
     clearFactor: () => set({ activeFactorId: null }),
 
-    setStage: (stage) => set({ stage, isExploded: stage > 0, activeFactorId: null }),
-    nextStage: () => set((state) => ({
-        stage: Math.min(state.stage + 1, MAX_STAGE),
-        isExploded: true,
-        hasPlayedBang: true,
-        activeFactorId: null
-    })),
+    approachingEarth: false,
+
+    setStage: (stage) => set({
+        stage,
+        isExploded: stage > 0,
+        activeFactorId: null,
+        approachingEarth: false,
+    }),
+    nextStage: () => set((state) => {
+        if (state.stage >= MAX_STAGE) return state;
+        const goingToEarth = state.stage === 1;
+        return {
+            stage: state.stage + 1,
+            isExploded: true,
+            hasPlayedBang: true,
+            activeFactorId: null,
+            approachingEarth: goingToEarth,
+        };
+    }),
     prevStage: () => set((state) => {
         const nextSt = Math.max(state.stage - 1, 0);
         return {
             stage: nextSt,
             isExploded: nextSt > 0,
-            activeFactorId: null
+            activeFactorId: null,
+            approachingEarth: false,
         };
     }),
     triggerBang: () => set((state) => {
@@ -59,8 +72,10 @@ export const useStore = create((set) => ({
         isExploded: false,
         hasPlayedBang: false,
         activeFactorId: null,
-        reversedFactors: {}
+        reversedFactors: {},
+        approachingEarth: false,
     }),
+    finishEarthApproach: () => set({ approachingEarth: false }),
 
     // Дополнительные данные, если понадобятся для камеры
     cameraTarget: [0, 0, 0],

@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import gsap from 'gsap';
 import { useStore } from '../store';
 import { latLonToArray, latLonToVec3, seededRandom, sunDirection } from '../lib/geo';
 import { circleSprite, starSprite } from '../lib/sprites';
@@ -12,7 +11,8 @@ import NatureLayer from './earth/NatureLayer';
 import CityLayer from './earth/CityLayer';
 
 const R = 10;
-const PLANET_OFFSET = [0, -6.5, 0];
+
+// ─── Небо: звёзды, солнце, луна ──────────────────────────────────────────────
 
 // ─── Небо: звёзды, солнце, луна ──────────────────────────────────────────────
 
@@ -455,29 +455,6 @@ export default function Planet() {
 
     const isNature = stage === 2;
 
-    // Разворот планеты: природа — западное полушарие (Америки), цивилизация —
-    // восточное (Азия и Европа). При rotation.y = 0 к камере обращена Америка
-    // (проверено по скриншотам: Нью-Йорк в центре кадра), при π — Азия.
-    const firstSpin = useRef(true);
-    useEffect(() => {
-        if (!planetGroup.current) return;
-        const targetY = isNature ? 0 : Math.PI;
-
-        // На первом монтировании ставим сразу, без облёта половины планеты
-        if (firstSpin.current) {
-            firstSpin.current = false;
-            planetGroup.current.rotation.y = targetY;
-            return undefined;
-        }
-
-        const tween = gsap.to(planetGroup.current.rotation, {
-            y: targetY,
-            duration: 2.2,
-            ease: 'power2.inOut',
-        });
-        return () => tween.kill();
-    }, [isNature]);
-
     const globeTuning = useMemo(() => ({
         drought: reversedFactors.ocean ? 1 : 0,
         desert: reversedFactors.atmosphere ? 1 : 0,
@@ -494,7 +471,7 @@ export default function Planet() {
         <group>
             <ambientLight intensity={0.32} />
 
-            <group position={PLANET_OFFSET}>
+            <group>
                 <StarDome dimmed={!!reversedFactors.starField} />
                 <SunSystem
                     sunDir={sunDir}

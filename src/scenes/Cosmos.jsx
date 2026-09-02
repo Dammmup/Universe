@@ -4,6 +4,7 @@ import { Billboard, Text, useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore } from '../store';
 import { seededRandom } from '../lib/geo';
+import { earthWorld } from '../lib/journey';
 import { circleSprite, nebulaSprite, starSprite } from '../lib/sprites';
 import {
     jupiterTexture,
@@ -677,16 +678,18 @@ function EarthSystem({ reversedFactors, onSelect }) {
     const antigravity = !!reversedFactors.gravity;
     const lowTide = !!reversedFactors.tides;
 
+    const freeze = useStore((s) => s.approachingEarth);
+
     useFrame((_, delta) => {
-        angle.current += delta * 0.3;
+        if (!freeze) angle.current += delta * 0.3;
         if (groupRef.current) {
             groupRef.current.position.set(
                 Math.cos(angle.current) * ORBIT[0],
                 0,
                 Math.sin(angle.current) * ORBIT[1],
             );
-            // Солнце в центре системы, поэтому направление на свет — это минус радиус-вектор
             groupRef.current.getWorldPosition(worldPos);
+            earthWorld.copy(worldPos);
             sunDir.current.copy(worldPos).negate().normalize();
         }
         if (spinRef.current) spinRef.current.rotation.y += delta * 0.5;
