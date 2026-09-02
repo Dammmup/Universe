@@ -66,3 +66,9 @@ export const useStore = create((set) => ({
     cameraTarget: [0, 0, 0],
     setCameraTarget: (target) => set({ cameraTarget: target })
 }));
+
+// В режиме разработки стор доступен из консоли — так можно прыгать по стадиям
+// и проверять факторы без прохождения всего пути заново.
+if (import.meta.env.DEV) {
+    window.realityStore = useStore;
+}

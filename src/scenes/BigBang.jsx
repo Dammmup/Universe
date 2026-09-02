@@ -5,11 +5,22 @@ import gsap from 'gsap';
 import { useStore } from '../store';
 
 export default function BigBang() {
-    const { isExploded, triggerBang, setStage } = useStore();
+    const isExploded = useStore((s) => s.isExploded);
+    const triggerBang = useStore((s) => s.triggerBang);
+    const setStage = useStore((s) => s.setStage);
     const particleCount = 20000;
     const pointsRef = useRef();
     const materialRef = useRef();
     const { camera } = useThree();
+
+    // До взрыва все частицы лежат в одной точке: рисовать 20 000 наложенных
+    // друг на друга аддитивных спрайтов бессмысленно и дорого (overdraw ронял
+    // FPS). Пока сингулярность цела, рендерится лишь малая часть буфера.
+    useEffect(() => {
+        const geometry = pointsRef.current?.geometry;
+        if (!geometry) return;
+        geometry.setDrawRange(0, isExploded ? particleCount : 48);
+    }, [isExploded, particleCount]);
 
     // Генератор круглой текстуры для частиц (мягкий круг)
     const circleTexture = useMemo(() => {

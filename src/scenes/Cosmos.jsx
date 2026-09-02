@@ -1,790 +1,385 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Text } from '@react-three/drei';
+import { Billboard, Text, useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore } from '../store';
+import { seededRandom } from '../lib/geo';
+import { circleSprite, nebulaSprite, starSprite } from '../lib/sprites';
+import {
+    jupiterTexture,
+    marsTexture,
+    mercuryTexture,
+    saturnRingsTexture,
+    saturnTexture,
+    sunTexture,
+    venusTexture,
+} from '../lib/planetTextures';
+import EarthGlobe from './earth/EarthGlobe';
 
-// ═══════════════════════════════════════════════════════════
-// ПРОЦЕДУРНЫЕ ТЕКСТУРЫ
-// ═══════════════════════════════════════════════════════════
+const MOON_TEXTURE = '/textures/planets/moon_1024.jpg';
 
-function drawCrater(ctx, x, y, r, baseColor) {
-    // Внешний бортик (светлый)
-    const rim = ctx.createRadialGradient(x, y, r * 0.7, x, y, r * 1.1);
-    rim.addColorStop(0, 'rgba(0,0,0,0)');
-    rim.addColorStop(0.5, baseColor + '66');
-    rim.addColorStop(1, 'rgba(200,200,200,0.15)');
-    ctx.fillStyle = rim;
-    ctx.beginPath(); ctx.arc(x, y, r * 1.1, 0, Math.PI * 2); ctx.fill();
-
-    // Впадина (тёмная)
-    const pit = ctx.createRadialGradient(x + r * 0.15, y + r * 0.15, 0, x, y, r * 0.85);
-    pit.addColorStop(0, 'rgba(0,0,0,0.65)');
-    pit.addColorStop(0.5, 'rgba(0,0,0,0.3)');
-    pit.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = pit;
-    ctx.beginPath(); ctx.arc(x, y, r * 0.85, 0, Math.PI * 2); ctx.fill();
-
-    // Центральная горка
-    if (r > 8) {
-        ctx.fillStyle = 'rgba(200,200,200,0.18)';
-        ctx.beginPath(); ctx.arc(x, y, r * 0.15, 0, Math.PI * 2); ctx.fill();
-    }
+/**
+ * Подпись, всегда повёрнутая к камере. Свободное вращение OrbitControls
+ * позволяет зайти «за» объект — обычный Text там читается зеркально.
+ */
+function BillboardText({ position, children, ...textProps }) {
+    return (
+        <Billboard position={position}>
+            <Text font="/Roboto-Regular.ttf" outlineColor="black" {...textProps}>
+                {children}
+            </Text>
+        </Billboard>
+    );
 }
 
-function generateMercuryTexture() {
-    const W = 512, H = 256;
-    const c = document.createElement('canvas'); c.width = W; c.height = H;
-    const ctx = c.getContext('2d');
+// ═══════════════════════════════════════════════════════════
+// ЗВЁЗДНОЕ НЕБО
+// ═══════════════════════════════════════════════════════════
 
-    // Базовый фон — тёмно-серый
-    ctx.fillStyle = '#7a7a7a'; ctx.fillRect(0, 0, W, H);
+function StarShell({ count, seed, size, radiusRange, saturation, tex }) {
+    const ref = useRef();
 
-    // Цветовые вариации — пятна разной яркости
-    for (let i = 0; i < 300; i++) {
-        const x = Math.random() * W, y = Math.random() * H, r = 10 + Math.random() * 40;
-        const l = 80 + Math.floor(Math.random() * 50);
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, `rgba(${l},${l},${l},0.4)`);
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    }
+    const [positions, colors] = useMemo(() => {
+        const rand = seededRandom(seed);
+        const pos = new Float32Array(count * 3);
+        const col = new Float32Array(count * 3);
+        const color = new THREE.Color();
 
-    // Кратеры — большие
-    for (let i = 0; i < 8; i++) {
-        drawCrater(ctx, Math.random() * W, Math.random() * H, 15 + Math.random() * 30, '#aaaaaa');
-    }
-    // Кратеры — средние
-    for (let i = 0; i < 20; i++) {
-        drawCrater(ctx, Math.random() * W, Math.random() * H, 6 + Math.random() * 14, '#999999');
-    }
-    // Кратеры — мелкие
-    for (let i = 0; i < 60; i++) {
-        drawCrater(ctx, Math.random() * W, Math.random() * H, 2 + Math.random() * 6, '#888888');
-    }
+        for (let i = 0; i < count; i += 1) {
+            const r = radiusRange[0] + rand() * (radiusRange[1] - radiusRange[0]);
+            const theta = rand() * Math.PI * 2;
+            const phi = Math.acos(2 * rand() - 1);
+            pos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+            pos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+            pos[i * 3 + 2] = r * Math.cos(phi);
 
-    // Гладкие равнины (светлые)
-    for (let i = 0; i < 5; i++) {
-        const x = Math.random() * W, y = Math.random() * H, r = 40 + Math.random() * 60;
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, 'rgba(175,170,165,0.3)');
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    }
+            const roll = rand();
+            const hue = roll < 0.2 ? 0.58 : roll < 0.8 ? 0.12 : 0.03;
+            color.setHSL(hue, saturation, 0.7 + rand() * 0.3);
+            col[i * 3] = color.r;
+            col[i * 3 + 1] = color.g;
+            col[i * 3 + 2] = color.b;
+        }
+        return [pos, col];
+    }, [count, seed, radiusRange, saturation]);
 
-    return new THREE.CanvasTexture(c);
-}
-
-function generateEarthTexture() {
-    const W = 512, H = 256;
-    const c = document.createElement('canvas'); c.width = W; c.height = H;
-    const ctx = c.getContext('2d');
-
-    // Океан
-    ctx.fillStyle = '#1a4a8a'; ctx.fillRect(0, 0, W, H);
-
-    // Подводные вариации
-    for (let i = 0; i < 200; i++) {
-        const x = Math.random() * W, y = Math.random() * H;
-        const r = 15 + Math.random() * 50;
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, 'rgba(30,100,180,0.3)');
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    }
-
-    // Материки — упрощённые blob-формы
-    const continents = [
-        // Сев. Америка
-        { pts: [{ x: 0.06, y: 0.28 }, { x: 0.19, y: 0.22 }, { x: 0.24, y: 0.38 }, { x: 0.2, y: 0.52 }, { x: 0.14, y: 0.6 }, { x: 0.06, y: 0.52 }], col: '#2d7a3a' },
-        // Юж. Америка
-        { pts: [{ x: 0.22, y: 0.55 }, { x: 0.3, y: 0.5 }, { x: 0.33, y: 0.62 }, { x: 0.29, y: 0.78 }, { x: 0.22, y: 0.8 }, { x: 0.18, y: 0.68 }], col: '#3aaa4a' },
-        // Европа + Африка
-        { pts: [{ x: 0.44, y: 0.22 }, { x: 0.53, y: 0.2 }, { x: 0.55, y: 0.35 }, { x: 0.52, y: 0.55 }, { x: 0.54, y: 0.75 }, { x: 0.48, y: 0.82 }, { x: 0.43, y: 0.7 }, { x: 0.42, y: 0.5 }, { x: 0.43, y: 0.35 }], col: '#4aaa44' },
-        // Азия
-        { pts: [{ x: 0.56, y: 0.18 }, { x: 0.78, y: 0.15 }, { x: 0.88, y: 0.22 }, { x: 0.85, y: 0.38 }, { x: 0.78, y: 0.48 }, { x: 0.7, y: 0.5 }, { x: 0.62, y: 0.44 }, { x: 0.55, y: 0.36 }], col: '#3d9944' },
-        // Австралия
-        { pts: [{ x: 0.73, y: 0.6 }, { x: 0.82, y: 0.58 }, { x: 0.85, y: 0.68 }, { x: 0.8, y: 0.74 }, { x: 0.72, y: 0.73 }], col: '#c8a86a' },
-        // Антарктида (частично)
-        { pts: [{ x: 0.1, y: 0.93 }, { x: 0.5, y: 0.9 }, { x: 0.9, y: 0.93 }, { x: 0.9, y: 1.0 }, { x: 0.1, y: 1.0 }], col: '#dde8f0' },
-    ];
-
-    continents.forEach(({ pts, col }) => {
-        ctx.fillStyle = col;
-        ctx.beginPath();
-        pts.forEach((p, i) => {
-            const px = p.x * W, py = p.y * H;
-            i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-        });
-        ctx.closePath(); ctx.fill();
+    useFrame((_, delta) => {
+        if (ref.current) ref.current.rotation.y += delta * 0.003;
     });
 
-    // Горы/рельеф (тёмные вариации на суше)
-    for (let i = 0; i < 80; i++) {
-        const x = Math.random() * W, y = (0.15 + Math.random() * 0.75) * H, r = 3 + Math.random() * 12;
-        ctx.fillStyle = `rgba(0,0,0,${0.08 + Math.random() * 0.12})`;
-        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    }
-
-    // Полярные шапки (белые градиенты)
-    const capN = ctx.createLinearGradient(0, 0, 0, H * 0.18);
-    capN.addColorStop(0, 'rgba(230,245,255,0.95)');
-    capN.addColorStop(1, 'rgba(200,230,250,0)');
-    ctx.fillStyle = capN; ctx.fillRect(0, 0, W, H * 0.18);
-
-    const capS = ctx.createLinearGradient(0, H * 0.88, 0, H);
-    capS.addColorStop(0, 'rgba(200,230,250,0)');
-    capS.addColorStop(1, 'rgba(230,245,255,0.95)');
-    ctx.fillStyle = capS; ctx.fillRect(0, H * 0.88, W, H);
-
-    return new THREE.CanvasTexture(c);
+    return (
+        <points ref={ref}>
+            <bufferGeometry>
+                <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+                <bufferAttribute attach="attributes-color" args={[colors, 3]} />
+            </bufferGeometry>
+            <pointsMaterial
+                size={size}
+                vertexColors
+                transparent
+                opacity={0.95}
+                depthWrite={false}
+                sizeAttenuation
+                blending={THREE.AdditiveBlending}
+                map={tex}
+                alphaMap={tex}
+                alphaTest={0.01}
+            />
+        </points>
+    );
 }
 
-function generateEarthCloudsTexture() {
-    const W = 512, H = 256;
-    const c = document.createElement('canvas'); c.width = W; c.height = H;
-    const ctx = c.getContext('2d');
-    ctx.clearRect(0, 0, W, H);
+/**
+ * Млечный Путь: звёзды сгущаются в наклонный диск, как в настоящей галактике,
+ * где Солнце сидит на краю одного из спиральных рукавов.
+ */
+function MilkyWay({ scattered, onSelect }) {
+    const groupRef = useRef();
+    const pointsRef = useRef();
+    const tex = useMemo(() => starSprite(), []);
 
-    // Облачные скопления
-    for (let i = 0; i < 120; i++) {
-        const x = Math.random() * W, y = Math.random() * H;
-        const rx = 15 + Math.random() * 50, ry = 8 + Math.random() * 20;
-        const a = Math.random() * Math.PI;
-        const op = 0.3 + Math.random() * 0.55;
-        const g = ctx.createRadialGradient(x, y, 0, x, y, Math.max(rx, ry));
-        g.addColorStop(0, `rgba(255,255,255,${op})`);
-        g.addColorStop(0.5, `rgba(255,255,255,${op * 0.5})`);
-        g.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = g;
-        ctx.save(); ctx.translate(x, y); ctx.rotate(a); ctx.scale(rx / Math.max(rx, ry), ry / Math.max(rx, ry));
-        ctx.beginPath(); ctx.arc(0, 0, Math.max(rx, ry), 0, Math.PI * 2); ctx.fill();
-        ctx.restore();
-    }
-    return new THREE.CanvasTexture(c);
-}
+    const [positions, colors] = useMemo(() => {
+        const count = 6000;
+        const rand = seededRandom(0x9a1a);
+        const pos = new Float32Array(count * 3);
+        const col = new Float32Array(count * 3);
+        const color = new THREE.Color();
 
-function generateMarsTexture() {
-    const W = 512, H = 256;
-    const c = document.createElement('canvas'); c.width = W; c.height = H;
-    const ctx = c.getContext('2d');
+        for (let i = 0; i < count; i += 1) {
+            // Плотность падает от центра диска, толщина — по нормальному распределению
+            const armSeed = rand();
+            const radius = 60 + Math.pow(armSeed, 0.55) * 230;
+            const spiral = radius * 0.018 + (rand() < 0.5 ? 0 : Math.PI);
+            const angle = spiral + (rand() - 0.5) * 1.1;
+            const thickness = (rand() + rand() + rand() - 1.5) * 18;
 
-    // Базовый цвет — ржаво-красный
-    ctx.fillStyle = '#a84422'; ctx.fillRect(0, 0, W, H);
+            pos[i * 3] = Math.cos(angle) * radius;
+            pos[i * 3 + 1] = thickness;
+            pos[i * 3 + 2] = Math.sin(angle) * radius;
 
-    // Вариации рельефа
-    for (let i = 0; i < 250; i++) {
-        const x = Math.random() * W, y = Math.random() * H, r = 8 + Math.random() * 45;
-        const bright = Math.random() > 0.5;
-        const col = bright ? 'rgba(200,120,70,0.25)' : 'rgba(80,20,10,0.25)';
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, col); g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    }
-
-    // Кратеры — большие
-    for (let i = 0; i < 6; i++) {
-        drawCrater(ctx, Math.random() * W, (0.15 + Math.random() * 0.7) * H, 14 + Math.random() * 28, '#cc6644');
-    }
-    // Кратеры — средние
-    for (let i = 0; i < 22; i++) {
-        drawCrater(ctx, Math.random() * W, (0.1 + Math.random() * 0.8) * H, 5 + Math.random() * 13, '#bb5533');
-    }
-    // Мелкие
-    for (let i = 0; i < 50; i++) {
-        drawCrater(ctx, Math.random() * W, Math.random() * H, 2 + Math.random() * 5, '#aa4422');
-    }
-
-    // Долина Маринер — тёмная впадина
-    ctx.fillStyle = 'rgba(60,15,5,0.35)';
-    ctx.beginPath();
-    ctx.ellipse(W * 0.5, H * 0.48, W * 0.22, H * 0.06, -0.1, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Полярная шапка (северная — CO2 лёд)
-    const capN = ctx.createLinearGradient(0, 0, 0, H * 0.14);
-    capN.addColorStop(0, 'rgba(245,245,255,0.9)');
-    capN.addColorStop(1, 'rgba(200,180,180,0)');
-    ctx.fillStyle = capN; ctx.fillRect(0, 0, W, H * 0.14);
-
-    // Южная шапка (меньше)
-    const capS = ctx.createLinearGradient(0, H * 0.91, 0, H);
-    capS.addColorStop(0, 'rgba(200,180,180,0)');
-    capS.addColorStop(1, 'rgba(235,235,245,0.7)');
-    ctx.fillStyle = capS; ctx.fillRect(0, H * 0.91, W, H);
-
-    // Пылевые бури
-    for (let i = 0; i < 3; i++) {
-        const x = Math.random() * W, y = (0.3 + Math.random() * 0.4) * H;
-        const g = ctx.createRadialGradient(x, y, 0, x, y, 60);
-        g.addColorStop(0, 'rgba(210,130,70,0.2)');
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 60, 0, Math.PI * 2); ctx.fill();
-    }
-
-    return new THREE.CanvasTexture(c);
-}
-
-// ─── Текстура Солнца с пятнами ────────────────────────────
-function generateSunTexture() {
-    const W = 512, H = 512;
-    const c = document.createElement('canvas'); c.width = W; c.height = H;
-    const ctx = c.getContext('2d');
-
-    // Основа — жёлто-оранжевый радиальный градиент
-    const base = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W / 2);
-    base.addColorStop(0, '#ffffcc');
-    base.addColorStop(0.3, '#ffee44');
-    base.addColorStop(0.6, '#ffcc00');
-    base.addColorStop(0.85, '#ff9900');
-    base.addColorStop(1, '#ff6600');
-    ctx.fillStyle = base; ctx.fillRect(0, 0, W, H);
-
-    // Конвекционные ячейки — светлые и тёмные пятна
-    for (let i = 0; i < 80; i++) {
-        const x = Math.random() * W, y = Math.random() * H, r = 12 + Math.random() * 45;
-        const bright = Math.random() > 0.45;
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        if (bright) {
-            g.addColorStop(0, 'rgba(255,255,180,0.35)');
-        } else {
-            g.addColorStop(0, 'rgba(180,80,0,0.22)');
+            const roll = rand();
+            color.setHSL(roll < 0.3 ? 0.6 : 0.1, 0.3, 0.55 + rand() * 0.35);
+            col[i * 3] = color.r;
+            col[i * 3 + 1] = color.g;
+            col[i * 3 + 2] = color.b;
         }
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    }
+        return [pos, col];
+    }, []);
 
-    // Солнечные пятна (умбра + пенумбра)
-    const spotCount = 5 + Math.floor(Math.random() * 4);
-    for (let i = 0; i < spotCount; i++) {
-        const ang = Math.random() * Math.PI * 2;
-        const dist = (0.15 + Math.random() * 0.35) * W * 0.5;
-        const sx = W / 2 + Math.cos(ang) * dist, sy = H / 2 + Math.sin(ang) * dist;
-        const sr = 12 + Math.random() * 22;
-        // Пенумбра
-        const pen = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr * 1.8);
-        pen.addColorStop(0, 'rgba(100,40,0,0.75)');
-        pen.addColorStop(0.5, 'rgba(140,60,0,0.4)');
-        pen.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = pen; ctx.beginPath(); ctx.arc(sx, sy, sr * 1.8, 0, Math.PI * 2); ctx.fill();
-        // Умбра (чёрный центр)
-        const umb = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr);
-        umb.addColorStop(0, 'rgba(30,10,0,0.95)');
-        umb.addColorStop(0.6, 'rgba(60,20,0,0.7)');
-        umb.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = umb; ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
-    }
+    useFrame((state, delta) => {
+        if (groupRef.current) groupRef.current.rotation.y += delta * 0.004;
+        const mat = pointsRef.current?.material;
+        if (mat) {
+            const target = scattered ? 0.12 : 0.6;
+            mat.opacity += (target - mat.opacity) * Math.min(1, delta * 1.5);
+            mat.size = scattered ? 2.6 : 1.5;
+        }
+    });
 
-    return new THREE.CanvasTexture(c);
+    return (
+        <group ref={groupRef} rotation={[0.42, 0, 0.28]}>
+            <points
+                ref={pointsRef}
+                onClick={(e) => { e.stopPropagation(); onSelect('galaxy'); }}
+            >
+                <bufferGeometry>
+                    <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+                    <bufferAttribute attach="attributes-color" args={[colors, 3]} />
+                </bufferGeometry>
+                <pointsMaterial
+                    size={1.5}
+                    vertexColors
+                    transparent
+                    opacity={0.6}
+                    depthWrite={false}
+                    sizeAttenuation
+                    blending={THREE.AdditiveBlending}
+                    map={tex}
+                    alphaMap={tex}
+                    alphaTest={0.01}
+                />
+            </points>
+        </group>
+    );
 }
 
-// ─── Лучи короны Солнца ───────────────────────────────────
-function SunCorona({ isReversed }) {
+/** Туманность как billboard-спрайт: газовое облако без стоимости прозрачной сферы. */
+function Nebula({ position, color, size, rotation = 0 }) {
+    const tex = useMemo(() => nebulaSprite(), []);
+    return (
+        <sprite position={position} scale={[size, size, 1]} rotation={[0, 0, rotation]}>
+            <spriteMaterial
+                map={tex}
+                color={color}
+                transparent
+                opacity={0.55}
+                depthWrite={false}
+                blending={THREE.AdditiveBlending}
+            />
+        </sprite>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════
+// СОЛНЦЕ
+// ═══════════════════════════════════════════════════════════
+
+/** Протуберанцы: петли плазмы, выгибающиеся над лимбом звезды. */
+function SolarProminences({ dimmed }) {
+    const groupRef = useRef();
+
+    const loops = useMemo(() => {
+        const rand = seededRandom(0x5011);
+        return Array.from({ length: 7 }, () => ({
+            angle: rand() * Math.PI * 2,
+            tilt: (rand() - 0.5) * 1.2,
+            scale: 0.7 + rand() * 0.8,
+            speed: 0.15 + rand() * 0.25,
+        }));
+    }, []);
+
+    useFrame((state) => {
+        const group = groupRef.current;
+        if (!group) return;
+        const t = state.clock.elapsedTime;
+        group.children.forEach((child, i) => {
+            const loop = loops[i];
+            const breathe = 1 + Math.sin(t * loop.speed * 3 + i) * 0.12;
+            child.scale.setScalar(loop.scale * breathe * (dimmed ? 0.4 : 1));
+            child.material.opacity = dimmed ? 0.1 : 0.32 + Math.sin(t * 2 + i) * 0.12;
+        });
+    });
+
+    return (
+        <group ref={groupRef}>
+            {loops.map((loop, i) => (
+                <mesh
+                    key={i}
+                    position={[
+                        Math.cos(loop.angle) * 4.1,
+                        Math.sin(loop.angle) * 4.1,
+                        0,
+                    ]}
+                    rotation={[loop.tilt, 0, loop.angle + Math.PI / 2]}
+                >
+                    <torusGeometry args={[0.85, 0.1, 8, 28, Math.PI]} />
+                    <meshBasicMaterial
+                        color={dimmed ? '#8a2200' : '#ffb347'}
+                        transparent
+                        opacity={0.32}
+                        depthWrite={false}
+                        blending={THREE.AdditiveBlending}
+                    />
+                </mesh>
+            ))}
+        </group>
+    );
+}
+
+function SunCorona({ dimmed }) {
     const innerRef = useRef();
     const outerRef = useRef();
 
-    const makeRays = (count, innerR, outerR) => {
+    const makeRays = (count, innerR, outerR, seed) => {
+        const rand = seededRandom(seed);
         const pos = new Float32Array(count * 2 * 3);
-        for (let i = 0; i < count; i++) {
+        for (let i = 0; i < count; i += 1) {
             const angle = (i / count) * Math.PI * 2;
-            const lenVar = 0.7 + Math.random() * 0.6;
-            pos[i * 6 + 0] = Math.cos(angle) * innerR;
+            const lenVar = 0.7 + rand() * 0.6;
+            pos[i * 6] = Math.cos(angle) * innerR;
             pos[i * 6 + 1] = Math.sin(angle) * innerR;
             pos[i * 6 + 2] = 0;
             pos[i * 6 + 3] = Math.cos(angle) * (outerR * lenVar);
             pos[i * 6 + 4] = Math.sin(angle) * (outerR * lenVar);
             pos[i * 6 + 5] = 0;
         }
-        return { pos, count: count * 2 };
+        return pos;
     };
 
-    const rays1 = useMemo(() => makeRays(28, 4.3, 9.5), []);
-    const rays2 = useMemo(() => makeRays(18, 4.6, 13.0), []);
+    const rays1 = useMemo(() => makeRays(28, 4.3, 7.4, 0xc01), []);
+    const rays2 = useMemo(() => makeRays(18, 4.6, 9.4, 0xc02), []);
 
-    useFrame((s) => {
-        if (innerRef.current) innerRef.current.rotation.z = s.clock.elapsedTime * 0.12;
-        if (outerRef.current) outerRef.current.rotation.z = -s.clock.elapsedTime * 0.07;
-
-        // Пульсация прозрачности
-        if (innerRef.current?.material) {
-            innerRef.current.material.opacity = 0.45 + Math.sin(s.clock.elapsedTime * 2.1) * 0.15;
+    useFrame((state) => {
+        const t = state.clock.elapsedTime;
+        if (innerRef.current) {
+            innerRef.current.rotation.z = t * 0.12;
+            innerRef.current.material.opacity = (dimmed ? 0.08 : 0.3) + Math.sin(t * 2.1) * 0.08;
         }
-        if (outerRef.current?.material) {
-            outerRef.current.material.opacity = 0.25 + Math.sin(s.clock.elapsedTime * 1.4 + 1) * 0.1;
+        if (outerRef.current) {
+            outerRef.current.rotation.z = -t * 0.07;
+            outerRef.current.material.opacity = (dimmed ? 0.03 : 0.15) + Math.sin(t * 1.4 + 1) * 0.05;
         }
     });
 
-    const rayColor = isReversed ? '#ff5500' : '#ffdd66';
+    const rayColor = dimmed ? '#ff5500' : '#ffdd66';
 
     return (
         <group>
             <lineSegments ref={innerRef}>
                 <bufferGeometry>
-                    <bufferAttribute attach="attributes-position" count={rays1.count} array={rays1.pos} itemSize={3} />
+                    <bufferAttribute attach="attributes-position" args={[rays1, 3]} />
                 </bufferGeometry>
-                <lineBasicMaterial color={rayColor} transparent opacity={0.45} />
+                <lineBasicMaterial color={rayColor} transparent opacity={0.45} depthWrite={false} blending={THREE.AdditiveBlending} />
             </lineSegments>
             <lineSegments ref={outerRef}>
                 <bufferGeometry>
-                    <bufferAttribute attach="attributes-position" count={rays2.count} array={rays2.pos} itemSize={3} />
+                    <bufferAttribute attach="attributes-position" args={[rays2, 3]} />
                 </bufferGeometry>
-                <lineBasicMaterial color={rayColor} transparent opacity={0.22} />
+                <lineBasicMaterial color={rayColor} transparent opacity={0.22} depthWrite={false} blending={THREE.AdditiveBlending} />
             </lineSegments>
         </group>
     );
 }
 
-function generateMoonTexture() {
-    const W = 512, H = 256;
-    const c = document.createElement('canvas'); c.width = W; c.height = H;
-    const ctx = c.getContext('2d');
-
-    // Базовый фон — средне-серый
-    ctx.fillStyle = '#888888'; ctx.fillRect(0, 0, W, H);
-
-    // Лунные «моря» (mare) — тёмные области
-    const mares = [
-        { x: 0.35, y: 0.38, r: 0.12 }, { x: 0.55, y: 0.3, r: 0.09 },
-        { x: 0.25, y: 0.5, r: 0.08 }, { x: 0.6, y: 0.48, r: 0.1 },
-        { x: 0.42, y: 0.58, r: 0.07 },
-    ];
-    mares.forEach(m => {
-        const g = ctx.createRadialGradient(m.x * W, m.y * H, 0, m.x * W, m.y * H, m.r * W);
-        g.addColorStop(0, 'rgba(60,60,65,0.8)');
-        g.addColorStop(0.6, 'rgba(70,70,75,0.5)');
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.arc(m.x * W, m.y * H, m.r * W, 0, Math.PI * 2); ctx.fill();
-    });
-
-    // Текстурные вариации
-    for (let i = 0; i < 200; i++) {
-        const x = Math.random() * W, y = Math.random() * H, r = 5 + Math.random() * 25;
-        const l = 100 + Math.floor(Math.random() * 60);
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, `rgba(${l},${l},${l},0.2)`);
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    }
-
-    // Кратеры — крупные
-    for (let i = 0; i < 6; i++) drawCrater(ctx, Math.random() * W, Math.random() * H, 18 + Math.random() * 35, '#aaaaaa');
-    // Средние
-    for (let i = 0; i < 18; i++) drawCrater(ctx, Math.random() * W, Math.random() * H, 7 + Math.random() * 16, '#999999');
-    // Мелкие
-    for (let i = 0; i < 55; i++) drawCrater(ctx, Math.random() * W, Math.random() * H, 2 + Math.random() * 7, '#888888');
-
-    return new THREE.CanvasTexture(c);
-}
-
-// ═══════════════════════════════════════════════════════════
-// ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ
-// ═══════════════════════════════════════════════════════════
-
-function createCircleTexture() {
-    const c = document.createElement('canvas'); c.width = 64; c.height = 64;
-    const ctx = c.getContext('2d');
-    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-    g.addColorStop(0, 'rgba(255,255,255,1)');
-    g.addColorStop(0.4, 'rgba(255,255,255,0.8)');
-    g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
-    return new THREE.CanvasTexture(c);
-}
-
-function useDisposableTexture(texture) {
-    useEffect(() => () => texture?.dispose(), [texture]);
-}
-
-// ─── Звёзды ───────────────────────────────────────────────────
-function StarField() {
-    const pointsRef = useRef();
-    const tex = useMemo(() => createCircleTexture(), []);
-    useDisposableTexture(tex);
-    const [pos, col] = useMemo(() => {
-        const count = 5000;
-        const p = new Float32Array(count * 3), c = new Float32Array(count * 3);
-        const col3 = new THREE.Color();
-        for (let i = 0; i < count; i++) {
-            const r = 130 + Math.random() * 200, th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1);
-            p[i * 3] = r * Math.sin(ph) * Math.cos(th);
-            p[i * 3 + 1] = r * Math.sin(ph) * Math.sin(th);
-            p[i * 3 + 2] = r * Math.cos(ph);
-            col3.setHSL(Math.random() < 0.6 ? 0.62 : 0.1, 0.25, 0.75 + Math.random() * 0.25);
-            c[i * 3] = col3.r; c[i * 3 + 1] = col3.g; c[i * 3 + 2] = col3.b;
-        }
-        return [p, c];
-    }, []);
-    useFrame(s => { if (pointsRef.current) pointsRef.current.rotation.y = s.clock.elapsedTime * 0.003; });
-    return (
-        <points ref={pointsRef}>
-            <bufferGeometry>
-                <bufferAttribute attach="attributes-position" count={pos.length / 3} array={pos} itemSize={3} />
-                <bufferAttribute attach="attributes-color" count={col.length / 3} array={col} itemSize={3} />
-            </bufferGeometry>
-            <pointsMaterial size={1.1} vertexColors transparent opacity={1} depthWrite={false}
-                blending={THREE.AdditiveBlending} map={tex} alphaMap={tex} alphaTest={0.001} sizeAttenuation />
-        </points>
-    );
-}
-
-// ─── Орбитальное кольцо ────────────────────────────────────
-function OrbitRing({ rx, rz, color = '#ffffff', opacity = 0.12 }) {
-    const pts = useMemo(() => {
-        const a = new Float32Array(129 * 3);
-        for (let i = 0; i <= 128; i++) {
-            const ang = (i / 128) * Math.PI * 2;
-            a[i * 3] = Math.cos(ang) * rx; a[i * 3 + 1] = 0; a[i * 3 + 2] = Math.sin(ang) * rz;
-        }
-        return a;
-    }, [rx, rz]);
-    return (
-        <line>
-            <bufferGeometry><bufferAttribute attach="attributes-position" count={129} array={pts} itemSize={3} /></bufferGeometry>
-            <lineBasicMaterial color={color} transparent opacity={opacity} />
-        </line>
-    );
-}
-
-// ─── Атмосферический ореол ─────────────────────────────────
-function AtmoGlow({ radius, color, opacity = 0.18 }) {
-    return (
-        <mesh>
-            <sphereGeometry args={[radius * 1.15, 32, 32]} />
-            <meshBasicMaterial color={color} transparent opacity={opacity} side={THREE.BackSide} />
-        </mesh>
-    );
-}
-
-// ─── Луна ─────────────────────────────────────────────────
-function Moon({ earthPosRef, reversedFactors, setActiveFactor }) {
-    const meshRef = useRef();
-    const groupRef = useRef();
-    const angle = useRef(1.2);
-    const tex = useMemo(() => generateMoonTexture(), []);
-    useDisposableTexture(tex);
-    const ORBIT = 5.5;
-
-    const moonRev = !!reversedFactors['moonlight'];
-
-    useFrame((_, delta) => {
-        angle.current += delta * 1.0;
-        if (groupRef.current && earthPosRef.current) {
-            groupRef.current.position.set(
-                earthPosRef.current.x + Math.cos(angle.current) * ORBIT,
-                earthPosRef.current.y + Math.sin(angle.current * 0.4) * 0.6,
-                earthPosRef.current.z + Math.sin(angle.current) * ORBIT
-            );
-        }
-        if (meshRef.current) meshRef.current.rotation.y += delta * 0.08;
-    });
-
-    return (
-        <group ref={groupRef}>
-            {/* Тело Луны — кликабельно (отражение) */}
-            <group
-                onClick={(e) => { e.stopPropagation(); setActiveFactor('moonlight'); }}
-                onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-                onPointerOut={() => { document.body.style.cursor = 'auto'; }}
-            >
-                <mesh ref={meshRef}>
-                    <sphereGeometry args={[0.42, 48, 48]} />
-                    <meshStandardMaterial map={tex} roughness={0.92} metalness={0}
-                        emissive={moonRev ? '#222211' : '#111111'} emissiveIntensity={moonRev ? 0.1 : 0.03} />
-                </mesh>
-
-                {/* Лунное свечение при отражении */}
-                {!moonRev && (
-                    <mesh>
-                        <sphereGeometry args={[0.55, 16, 16]} />
-                        <meshBasicMaterial color="#ffffee" transparent opacity={0.04} />
-                    </mesh>
-                )}
-
-                <Text font="/Roboto-Regular.ttf" position={[0, 0.8, 0]} fontSize={0.45} color={moonRev ? '#88aacc' : '#ffffaa'}
-                    anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.04}>
-                    {moonRev ? 'ПОГЛОЩЕНИЕ' : 'ОТРАЖЕНИЕ'}
-                </Text>
-            </group>
-        </group>
-    );
-}
-
-// ─── Меркурий ─────────────────────────────────────────────
-function Mercury({ reversedFactors, setActiveFactor }) {
-    const meshRef = useRef();
-    const groupRef = useRef();
-    const angle = useRef(0.5);
-    const tex = useMemo(() => generateMercuryTexture(), []);
-    useDisposableTexture(tex);
-    const RX = 13, RZ = 9;
-
-    useFrame((_, delta) => {
-        angle.current += delta * 0.55;
-        if (groupRef.current) {
-            groupRef.current.position.set(Math.cos(angle.current) * RX, 0, Math.sin(angle.current) * RZ);
-        }
-        if (meshRef.current) meshRef.current.rotation.y += delta * 0.05; // очень медленное вращение
-    });
-
-    const isRev = !!reversedFactors['heating'];
-
-    return (
-        <group ref={groupRef}>
-            <group
-                onClick={(e) => { e.stopPropagation(); setActiveFactor('heating'); }}
-                onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-                onPointerOut={() => { document.body.style.cursor = 'auto'; }}
-            >
-                <mesh ref={meshRef}>
-                    <sphereGeometry args={[0.82, 64, 64]} />
-                    <meshStandardMaterial map={tex} roughness={0.75} metalness={0}
-                        emissive={isRev ? '#332211' : '#554433'} emissiveIntensity={isRev ? 0.18 : 0.35} />
-                </mesh>
-                <Text font="/Roboto-Regular.ttf" position={[0, 1.4, 0]} fontSize={0.7} color="#cccccc"
-                    anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.04}>Меркурий</Text>
-                <Text font="/Roboto-Regular.ttf" position={[0, 0.7, 0]} fontSize={0.55} color={isRev ? '#88aacc' : '#ffaa44'}
-                    anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.04}>
-                    {isRev ? '▼ остывание' : '▶ нагревание'}
-                </Text>
-            </group>
-        </group>
-    );
-}
-
-// ─── Земля + Луна (система) ────────────────────────────────
-function EarthSystem({ reversedFactors, setActiveFactor }) {
-    const meshRef = useRef();
-    const cloudRef = useRef();
-    const groupRef = useRef();
-    const gravityRingRef = useRef();
-    const angle = useRef(2.1);
-    const earthPos = useRef(new THREE.Vector3());
-
-    const baseTex = useMemo(() => generateEarthTexture(), []);
-    const cloudTex = useMemo(() => generateEarthCloudsTexture(), []);
-    useDisposableTexture(baseTex);
-    useDisposableTexture(cloudTex);
-    const RX = 22, RZ = 16;
-
-    const isRev = !!reversedFactors['gravity'];
-    const tidesRev = !!reversedFactors['tides'];
-
-    useFrame((_, delta) => {
-        angle.current += delta * 0.30;
-        const x = Math.cos(angle.current) * RX;
-        const z = Math.sin(angle.current) * RZ;
-        if (groupRef.current) groupRef.current.position.set(x, 0, z);
-        earthPos.current.set(x, 0, z);
-
-        if (meshRef.current) meshRef.current.rotation.y += delta * 0.55;
-        if (cloudRef.current) cloudRef.current.rotation.y += delta * 0.75; // облака быстрее
-
-        // Анимация гравитации: wireframe-сфера сужается (гравитация) или расширяется (антигравитация)
-        if (gravityRingRef.current) {
-            const speed = isRev ? 1.0 : -1.0;
-            gravityRingRef.current.scale.addScalar(delta * speed);
-            const s = gravityRingRef.current.scale.x;
-            if (!isRev && s < 1.0) gravityRingRef.current.scale.setScalar(2.5);
-            if (isRev && s > 2.5) gravityRingRef.current.scale.setScalar(1.0);
-
-            // Прозрачность затухает на краях
-            if (gravityRingRef.current.material) {
-                const alpha = isRev ? (2.5 - s) / 1.5 : (s - 1.0) / 1.5;
-                gravityRingRef.current.material.opacity = Math.max(0, Math.min(0.2, alpha * 0.2));
-            }
-        }
-    });
-
-    return (
-        <>
-            {/* Земля */}
-            <group ref={groupRef}>
-                <group
-                    onClick={(e) => { e.stopPropagation(); setActiveFactor('gravity'); }}
-                    onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-                    onPointerOut={() => { document.body.style.cursor = 'auto'; }}
-                >
-                    {/* Океан / суша */}
-                    <mesh ref={meshRef}>
-                        <sphereGeometry args={[1.52, 64, 64]} />
-                        <meshStandardMaterial map={baseTex} roughness={0.65} metalness={0.02}
-                            emissive="#112255" emissiveIntensity={0.28} />
-                    </mesh>
-
-                    {/* Облачный слой */}
-                    <mesh ref={cloudRef}>
-                        <sphereGeometry args={[1.58, 48, 48]} />
-                        <meshStandardMaterial map={cloudTex} transparent opacity={0.72}
-                            roughness={1} metalness={0} depthWrite={false} />
-                    </mesh>
-
-                    {/* Атмосферный ореол */}
-                    <AtmoGlow radius={1.52} color="#2255ff" opacity={0.14} />
-
-                    {/* Анимация Гравитации */}
-                    <mesh ref={gravityRingRef}>
-                        <sphereGeometry args={[1.6, 24, 24]} />
-                        <meshBasicMaterial color={isRev ? '#ff4422' : '#4488ff'} wireframe transparent opacity={0.2} />
-                    </mesh>
-
-                    <Text font="/Roboto-Regular.ttf" position={[0, 2.8, 0]} fontSize={0.9} color="#ffffff"
-                        anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.04}>Земля</Text>
-                    <Text font="/Roboto-Regular.ttf" position={[0, 1.8, 0]} fontSize={0.6} color={isRev ? '#ff6644' : '#44aaff'}
-                        anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.04}>
-                        {isRev ? '▼ АНТИГРАВИТАЦИЯ' : '▶ ГРАВИТАЦИЯ'}
-                    </Text>
-                </group>
-
-                {/* Фактор ПРИЛИВЫ — кольцо вокруг Земли */}
-                <group
-                    position={[0, 0, 0]}
-                    onClick={(e) => { e.stopPropagation(); setActiveFactor('tides'); }}
-                    onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-                    onPointerOut={() => { document.body.style.cursor = 'auto'; }}
-                >
-                    <mesh rotation={[Math.PI / 2, 0, 0]}>
-                        <ringGeometry args={[2.0, 2.2, 48]} />
-                        <meshBasicMaterial color={tidesRev ? '#2266aa' : '#88ccff'} transparent opacity={0.3} side={THREE.DoubleSide} />
-                    </mesh>
-                    <Text font="/Roboto-Regular.ttf" position={[0, -2.4, 0]} fontSize={0.5} color={tidesRev ? '#88aacc' : '#aaddff'}
-                        anchorX="center" anchorY="top" outlineColor="black" outlineWidth={0.04}>
-                        {tidesRev ? 'ОТЛИВЫ ▼' : 'ПРИЛИВЫ ▶'}
-                    </Text>
-                </group>
-            </group>
-
-            {/* Луна — следует за Землёй */}
-            <Moon earthPosRef={earthPos} reversedFactors={reversedFactors} setActiveFactor={setActiveFactor} />
-        </>
-    );
-}
-
-// ─── Марс ─────────────────────────────────────────────────
-function Mars({ reversedFactors, setActiveFactor }) {
-    const meshRef = useRef();
-    const groupRef = useRef();
-    const angle = useRef(4.2);
-    const tex = useMemo(() => generateMarsTexture(), []);
-    useDisposableTexture(tex);
-    const RX = 33, RZ = 24;
-
-    useFrame((_, delta) => {
-        angle.current += delta * 0.22;
-        if (groupRef.current) {
-            groupRef.current.position.set(Math.cos(angle.current) * RX, 0, Math.sin(angle.current) * RZ);
-        }
-        if (meshRef.current) meshRef.current.rotation.y += delta * 0.48;
-    });
-
-    const isRev = !!reversedFactors['freezing'];
-
-    return (
-        <group ref={groupRef}>
-            <group
-                onClick={(e) => { e.stopPropagation(); setActiveFactor('freezing'); }}
-                onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-                onPointerOut={() => { document.body.style.cursor = 'auto'; }}
-            >
-                <mesh ref={meshRef}>
-                    <sphereGeometry args={[1.12, 64, 64]} />
-                    <meshStandardMaterial map={tex} roughness={0.72} metalness={0}
-                        emissive={isRev ? '#002244' : '#442211'} emissiveIntensity={isRev ? 0.2 : 0.32} />
-                </mesh>
-
-                {/* Тонкая пылевая атмосфера */}
-                <AtmoGlow radius={1.12} color="#cc6633" opacity={0.08} />
-
-                <Text font="/Roboto-Regular.ttf" position={[0, 1.7, 0]} fontSize={0.8} color="#ff8866"
-                    anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.04}>Марс</Text>
-                <Text font="/Roboto-Regular.ttf" position={[0, 0.85, 0]} fontSize={0.58} color={isRev ? '#aaddff' : '#cc9988'}
-                    anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.04}>
-                    {isRev ? '▼ оттепель' : '▶ замерзание'}
-                </Text>
-            </group>
-        </group>
-    );
-}
-
-// ─── Солнце ───────────────────────────────────────────────
-function Sun({ isReversed, setActiveFactor }) {
+function Sun({ dimmed, onSelect }) {
     const glowRef = useRef();
-    const sunMesh = useRef();
-    const sunTex = useMemo(() => generateSunTexture(), []);
-    useDisposableTexture(sunTex);
+    const surfaceRef = useRef();
+    const tex = useMemo(() => sunTexture(), []);
 
-    useFrame((s) => {
+    useFrame((state) => {
+        const t = state.clock.elapsedTime;
         if (glowRef.current) {
-            const p = 1 + Math.sin(s.clock.elapsedTime * 1.3) * (isReversed ? 0.02 : 0.07);
-            glowRef.current.scale.setScalar(p);
+            glowRef.current.scale.setScalar(1 + Math.sin(t * 1.3) * (dimmed ? 0.02 : 0.06));
         }
-        // Медленное вращение поверхности (пятна двигаются)
-        if (sunMesh.current) {
-            sunMesh.current.rotation.y += 0.0008;
-            sunMesh.current.rotation.z += 0.0003;
+        if (surfaceRef.current) {
+            surfaceRef.current.rotation.y += 0.0008;
+            surfaceRef.current.rotation.z += 0.0003;
         }
     });
 
     return (
         <group
-            onClick={(e) => { e.stopPropagation(); setActiveFactor('sun'); }}
+            onClick={(e) => { e.stopPropagation(); onSelect('sun'); }}
             onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
             onPointerOut={() => { document.body.style.cursor = 'auto'; }}
         >
-            {/* Ядро с текстурой пятен */}
-            <mesh ref={sunMesh}>
-                <sphereGeometry args={[4, 64, 64]} />
-                <meshBasicMaterial map={sunTex} />
+            <mesh ref={surfaceRef} scale={dimmed ? 0.72 : 1}>
+                <sphereGeometry args={[4, 64, 48]} />
+                <meshBasicMaterial map={tex} color={dimmed ? '#b04a12' : '#ffffff'} />
             </mesh>
 
-            {/* Внутренняя корона */}
             <mesh ref={glowRef}>
-                <sphereGeometry args={[5.2, 32, 32]} />
-                <meshBasicMaterial color={isReversed ? '#661100' : '#ff9900'} transparent opacity={0.18} />
+                <sphereGeometry args={[5.2, 32, 24]} />
+                <meshBasicMaterial
+                    color={dimmed ? '#661100' : '#ff9900'}
+                    transparent
+                    opacity={0.18}
+                    depthWrite={false}
+                    blending={THREE.AdditiveBlending}
+                />
             </mesh>
-
-            {/* Внешняя корона */}
             <mesh>
-                <sphereGeometry args={[7.0, 32, 32]} />
-                <meshBasicMaterial color={isReversed ? '#330800' : '#ff5500'} transparent opacity={0.07} />
+                <sphereGeometry args={[7.4, 24, 18]} />
+                <meshBasicMaterial
+                    color={dimmed ? '#330800' : '#ff5500'}
+                    transparent
+                    opacity={0.07}
+                    depthWrite={false}
+                    blending={THREE.AdditiveBlending}
+                />
             </mesh>
 
-            {/* Большой ореол */}
-            <mesh>
-                <sphereGeometry args={[10, 24, 24]} />
-                <meshBasicMaterial color={isReversed ? '#220500' : '#ff8800'} transparent opacity={0.025} />
-            </mesh>
+            <SolarProminences dimmed={dimmed} />
+            <SunCorona dimmed={dimmed} />
 
-            {/* Лучи излучения */}
-            <SunCorona isReversed={isReversed} />
+            <BillboardText
+                position={[0, 7.2, 0]}
+                fontSize={1.2}
+                color={dimmed ? '#dd6633' : '#ffcc00'}
+                anchorX="center"
+                anchorY="bottom"
+                outlineWidth={0.05}
+            >
+                {dimmed ? 'УГАСАНИЕ' : 'СОЛНЦЕ'}
+            </BillboardText>
 
-            <Text font="/Roboto-Regular.ttf" position={[0, 7, 0]} fontSize={1.2} color={isReversed ? '#dd6633' : '#ffcc00'}
-                anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.05}>
-                {isReversed ? 'УГАСАНИЕ' : 'СОЛНЦЕ'}
-            </Text>
-            <pointLight intensity={isReversed ? 0.6 : 4.0} color={isReversed ? '#ff5500' : '#fff4cc'} distance={400} />
+            <pointLight
+                intensity={dimmed ? 0.5 : 3.4}
+                color={dimmed ? '#ff5500' : '#fff4cc'}
+                distance={420}
+                decay={1.1}
+            />
         </group>
     );
 }
 
-function SolarRadiation({ isReversed, setActiveFactor }) {
+function SolarWind({ shielded, onSelect }) {
     const rayRef = useRef();
     const particleRef = useRef();
     const rayCount = 42;
     const particleCount = 180;
+    const tex = useMemo(() => circleSprite(), []);
 
     const rays = useMemo(() => {
         const pos = new Float32Array(rayCount * 2 * 3);
-        for (let i = 0; i < rayCount; i++) {
+        for (let i = 0; i < rayCount; i += 1) {
             const angle = (i / rayCount) * Math.PI * 2;
-            const wobble = 1 + Math.sin(i * 2.17) * 0.18;
-            const inner = 8.3;
-            const outer = 20 * wobble;
-            pos[i * 6] = Math.cos(angle) * inner;
-            pos[i * 6 + 1] = Math.sin(angle) * inner;
+            const wobble = 1 + Math.sin(i * 2.17) * 0.14;
+            pos[i * 6] = Math.cos(angle) * 8.3;
+            pos[i * 6 + 1] = Math.sin(angle) * 8.3;
             pos[i * 6 + 2] = 0;
-            pos[i * 6 + 3] = Math.cos(angle) * outer;
-            pos[i * 6 + 4] = Math.sin(angle) * outer;
+            pos[i * 6 + 3] = Math.cos(angle) * 12.5 * wobble;
+            pos[i * 6 + 4] = Math.sin(angle) * 12.5 * wobble;
             pos[i * 6 + 5] = 0;
         }
         return pos;
@@ -792,7 +387,7 @@ function SolarRadiation({ isReversed, setActiveFactor }) {
 
     const particles = useMemo(() => {
         const pos = new Float32Array(particleCount * 3);
-        for (let i = 0; i < particleCount; i++) {
+        for (let i = 0; i < particleCount; i += 1) {
             const angle = (i / particleCount) * Math.PI * 2;
             const radius = 9 + (i % 23) * 0.55;
             pos[i * 3] = Math.cos(angle) * radius;
@@ -804,68 +399,453 @@ function SolarRadiation({ isReversed, setActiveFactor }) {
 
     useFrame((state, delta) => {
         if (rayRef.current) {
-            rayRef.current.rotation.z += delta * (isReversed ? 0.025 : 0.12);
-            rayRef.current.material.opacity = isReversed ? 0.08 : 0.28 + Math.sin(state.clock.elapsedTime * 1.8) * 0.06;
+            rayRef.current.rotation.z += delta * (shielded ? 0.025 : 0.12);
+            rayRef.current.material.opacity = shielded
+                ? 0.06
+                : 0.18 + Math.sin(state.clock.elapsedTime * 1.8) * 0.05;
         }
         if (particleRef.current) {
-            particleRef.current.rotation.z -= delta * (isReversed ? 0.04 : 0.35);
-            particleRef.current.material.opacity = isReversed ? 0.12 : 0.75;
+            particleRef.current.rotation.z -= delta * (shielded ? 0.04 : 0.35);
+            particleRef.current.material.opacity = shielded ? 0.1 : 0.7;
         }
     });
 
     return (
         <group
-            onClick={(e) => { e.stopPropagation(); setActiveFactor('radiation'); }}
+            onClick={(e) => { e.stopPropagation(); onSelect('radiation'); }}
             onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
             onPointerOut={() => { document.body.style.cursor = 'auto'; }}
         >
             <lineSegments ref={rayRef}>
                 <bufferGeometry>
-                    <bufferAttribute attach="attributes-position" count={rayCount * 2} array={rays} itemSize={3} />
+                    <bufferAttribute attach="attributes-position" args={[rays, 3]} />
                 </bufferGeometry>
-                <lineBasicMaterial color={isReversed ? '#556677' : '#fff0a0'} transparent opacity={0.28} />
+                <lineBasicMaterial
+                    color={shielded ? '#556677' : '#fff0a0'}
+                    transparent
+                    opacity={0.26}
+                    depthWrite={false}
+                    blending={THREE.AdditiveBlending}
+                />
             </lineSegments>
             <points ref={particleRef}>
                 <bufferGeometry>
-                    <bufferAttribute attach="attributes-position" count={particleCount} array={particles} itemSize={3} />
+                    <bufferAttribute attach="attributes-position" args={[particles, 3]} />
                 </bufferGeometry>
-                <pointsMaterial color={isReversed ? '#7790aa' : '#fff4aa'} size={0.45} transparent opacity={0.75} depthWrite={false} blending={THREE.AdditiveBlending} />
+                <pointsMaterial
+                    color={shielded ? '#7790aa' : '#fff4aa'}
+                    size={0.5}
+                    transparent
+                    opacity={0.7}
+                    depthWrite={false}
+                    sizeAttenuation
+                    blending={THREE.AdditiveBlending}
+                    map={tex}
+                    alphaMap={tex}
+                    alphaTest={0.01}
+                />
             </points>
-            <Text font="/Roboto-Regular.ttf" position={[0, -10.2, 0]} fontSize={0.8} color={isReversed ? '#9bb0cc' : '#fff1a0'}
-                anchorX="center" anchorY="top" outlineColor="black" outlineWidth={0.05}>
-                {isReversed ? 'ЭКРАНИРОВАНИЕ' : 'ИЗЛУЧЕНИЕ'}
-            </Text>
+            <BillboardText
+                position={[0, -10.4, 0]}
+                fontSize={0.8}
+                color={shielded ? '#9bb0cc' : '#fff1a0'}
+                anchorX="center"
+                anchorY="top"
+                outlineWidth={0.05}
+            >
+                {shielded ? 'ЭКРАНИРОВАНИЕ' : 'ИЗЛУЧЕНИЕ'}
+            </BillboardText>
         </group>
     );
 }
 
-// ─── Комета ───────────────────────────────────────────────
-function Comet({ isReversed, setActiveFactor }) {
+// ═══════════════════════════════════════════════════════════
+// ПЛАНЕТЫ
+// ═══════════════════════════════════════════════════════════
+
+function OrbitRing({ rx, rz, color = '#ffffff', opacity = 0.12 }) {
+    const points = useMemo(() => {
+        const arr = new Float32Array(129 * 3);
+        for (let i = 0; i <= 128; i += 1) {
+            const angle = (i / 128) * Math.PI * 2;
+            arr[i * 3] = Math.cos(angle) * rx;
+            arr[i * 3 + 1] = 0;
+            arr[i * 3 + 2] = Math.sin(angle) * rz;
+        }
+        return arr;
+    }, [rx, rz]);
+
+    return (
+        <line>
+            <bufferGeometry>
+                <bufferAttribute attach="attributes-position" args={[points, 3]} />
+            </bufferGeometry>
+            <lineBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} />
+        </line>
+    );
+}
+
+/**
+ * Планета на орбите. Наклон оси, скорость вращения и период обращения заданы
+ * по своим настоящим соотношениям, поэтому Юпитер ползёт по орбите медленно,
+ * но крутится вокруг оси быстрее всех.
+ */
+function OrbitingPlanet({
+    factorId,
+    label,
+    subtitle,
+    reverseSubtitle,
+    reversed,
+    radius,
+    orbit,
+    orbitSpeed,
+    spinSpeed,
+    axialTilt = 0,
+    texture,
+    emissive = '#000000',
+    emissiveIntensity = 0,
+    atmosphere,
+    labelColor = '#ffffff',
+    onSelect,
+    startAngle = 0,
+    children,
+}) {
     const groupRef = useRef();
-    const angle = useRef(0);
-    const tex = useMemo(() => createCircleTexture(), []);
-    useDisposableTexture(tex);
-    const tailCount = 200;
-    const tailPos = useMemo(() => new Float32Array(tailCount * 3), []);
-    const history = useMemo(() => { const h = []; for (let i = 0; i < tailCount; i++) h.push(new THREE.Vector3()); return h; }, []);
-    const historyCursor = useRef(0);
-    const tailRef = useRef();
+    const bodyRef = useRef();
+    const angle = useRef(startAngle);
 
     useFrame((_, delta) => {
-        const speed = isReversed ? 0.06 : 0.42;
-        angle.current += delta * speed;
+        angle.current += delta * orbitSpeed;
+        if (groupRef.current) {
+            groupRef.current.position.set(
+                Math.cos(angle.current) * orbit[0],
+                0,
+                Math.sin(angle.current) * orbit[1],
+            );
+        }
+        if (bodyRef.current) bodyRef.current.rotation.y += delta * spinSpeed;
+    });
+
+    return (
+        <group ref={groupRef}>
+            <group
+                rotation={[0, 0, axialTilt]}
+                onClick={(e) => { e.stopPropagation(); onSelect(factorId); }}
+                onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
+                onPointerOut={() => { document.body.style.cursor = 'auto'; }}
+            >
+                <mesh ref={bodyRef}>
+                    <sphereGeometry args={[radius, 48, 32]} />
+                    <meshStandardMaterial
+                        map={texture}
+                        roughness={0.78}
+                        metalness={0}
+                        emissive={emissive}
+                        emissiveIntensity={emissiveIntensity}
+                    />
+                </mesh>
+                {atmosphere && (
+                    <mesh scale={1.06}>
+                        <sphereGeometry args={[radius, 24, 16]} />
+                        <meshBasicMaterial
+                            color={atmosphere}
+                            transparent
+                            opacity={0.12}
+                            side={THREE.BackSide}
+                            depthWrite={false}
+                            blending={THREE.AdditiveBlending}
+                        />
+                    </mesh>
+                )}
+                {children}
+            </group>
+
+            <BillboardText
+                position={[0, radius + 0.85, 0]}
+                fontSize={Math.max(0.5, radius * 0.5)}
+                color={labelColor}
+                anchorX="center"
+                anchorY="bottom"
+                outlineWidth={0.04}
+            >
+                {label}
+            </BillboardText>
+            <BillboardText
+                position={[0, radius + 0.35, 0]}
+                fontSize={Math.max(0.38, radius * 0.34)}
+                color={reversed ? '#8fd0ff' : '#ffb066'}
+                anchorX="center"
+                anchorY="bottom"
+                outlineWidth={0.035}
+            >
+                {reversed ? reverseSubtitle : subtitle}
+            </BillboardText>
+        </group>
+    );
+}
+
+function SaturnRings({ radius, decaying }) {
+    const meshRef = useRef();
+    const tex = useMemo(() => saturnRingsTexture(), []);
+
+    useFrame((_, delta) => {
+        const mesh = meshRef.current;
+        if (!mesh) return;
+        mesh.rotation.z += delta * 0.06;
+        const target = decaying ? 0.22 : 0.95;
+        mesh.material.opacity += (target - mesh.material.opacity) * Math.min(1, delta * 1.2);
+        const scaleTarget = decaying ? 1.25 : 1;
+        mesh.scale.x += (scaleTarget - mesh.scale.x) * Math.min(1, delta);
+        mesh.scale.y = mesh.scale.x;
+    });
+
+    return (
+        <mesh ref={meshRef} rotation={[Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[radius * 1.35, radius * 2.35, 96]} />
+            <meshBasicMaterial
+                map={tex}
+                transparent
+                opacity={0.95}
+                side={THREE.DoubleSide}
+                depthWrite={false}
+            />
+        </mesh>
+    );
+}
+
+function Moon({ reversed, onSelect }) {
+    const groupRef = useRef();
+    const bodyRef = useRef();
+    const angle = useRef(1.2);
+    const texture = useTexture(MOON_TEXTURE);
+    const ORBIT = 3.1;
+
+    useFrame((_, delta) => {
+        angle.current += delta * 0.85;
+        if (groupRef.current) {
+            groupRef.current.position.set(
+                Math.cos(angle.current) * ORBIT,
+                Math.sin(angle.current * 0.35) * 0.45,
+                Math.sin(angle.current) * ORBIT,
+            );
+        }
+        // Луна в приливном захвате: сутки равны месяцу, к планете всегда одна сторона
+        if (bodyRef.current) bodyRef.current.rotation.y = -angle.current;
+    });
+
+    return (
+        <group
+            ref={groupRef}
+            onClick={(e) => { e.stopPropagation(); onSelect('moonlight'); }}
+            onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
+            onPointerOut={() => { document.body.style.cursor = 'auto'; }}
+        >
+            <mesh ref={bodyRef}>
+                <sphereGeometry args={[0.38, 32, 24]} />
+                <meshStandardMaterial
+                    map={texture}
+                    roughness={0.95}
+                    metalness={0}
+                    color={reversed ? '#5a5a60' : '#ffffff'}
+                />
+            </mesh>
+            <BillboardText
+                position={[0, 0.62, 0]}
+                fontSize={0.34}
+                color={reversed ? '#88aacc' : '#ffffaa'}
+                anchorX="center"
+                anchorY="bottom"
+                outlineWidth={0.035}
+            >
+                {reversed ? 'ПОГЛОЩЕНИЕ' : 'ОТРАЖЕНИЕ'}
+            </BillboardText>
+        </group>
+    );
+}
+
+/** Земля с настоящими материками, живым океаном, облаками и Луной. */
+function EarthSystem({ reversedFactors, onSelect }) {
+    const groupRef = useRef();
+    const spinRef = useRef();
+    const angle = useRef(2.1);
+    const sunDir = useRef(new THREE.Vector3(1, 0, 0));
+    const worldPos = useMemo(() => new THREE.Vector3(), []);
+
+    const ORBIT = [25, 18];
+    const RADIUS = 1.45;
+
+    const antigravity = !!reversedFactors.gravity;
+    const lowTide = !!reversedFactors.tides;
+
+    useFrame((_, delta) => {
+        angle.current += delta * 0.3;
+        if (groupRef.current) {
+            groupRef.current.position.set(
+                Math.cos(angle.current) * ORBIT[0],
+                0,
+                Math.sin(angle.current) * ORBIT[1],
+            );
+            // Солнце в центре системы, поэтому направление на свет — это минус радиус-вектор
+            groupRef.current.getWorldPosition(worldPos);
+            sunDir.current.copy(worldPos).negate().normalize();
+        }
+        if (spinRef.current) spinRef.current.rotation.y += delta * 0.5;
+    });
+
+    return (
+        <group ref={groupRef}>
+            <group
+                rotation={[0, 0, 0.41]}
+                onClick={(e) => { e.stopPropagation(); onSelect('gravity'); }}
+                onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
+                onPointerOut={() => { document.body.style.cursor = 'auto'; }}
+            >
+                <group ref={spinRef}>
+                    <EarthGlobe
+                        radius={RADIUS}
+                        segments={96}
+                        sunDir={sunDir}
+                        cloudOpacity={0.8}
+                        cloudDrift={0.006}
+                        atmosphereIntensity={1.15}
+                        tuning={{ nightGlow: 2.2, waveStrength: 0.05, waveAmp: 0.004, foam: 0.7, ambient: 0.16 }}
+                    />
+                </group>
+            </group>
+
+            {/* Гравитационное поле: сфера сжимается к планете или разлетается прочь */}
+            <GravityShell reversed={antigravity} radius={RADIUS} />
+
+            {/* Приливная волна, вытянутая вдоль линии на Луну */}
+            <group
+                onClick={(e) => { e.stopPropagation(); onSelect('tides'); }}
+                onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
+                onPointerOut={() => { document.body.style.cursor = 'auto'; }}
+            >
+                <mesh rotation={[Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[RADIUS * 1.3, RADIUS * 1.42, 64]} />
+                    <meshBasicMaterial
+                        color={lowTide ? '#2a5f8a' : '#8ce0ff'}
+                        transparent
+                        opacity={0.28}
+                        side={THREE.DoubleSide}
+                        depthWrite={false}
+                        blending={THREE.AdditiveBlending}
+                    />
+                </mesh>
+                <BillboardText
+                    position={[0, -RADIUS - 0.5, 0]}
+                    fontSize={0.42}
+                    color={lowTide ? '#88aacc' : '#aaddff'}
+                    anchorX="center"
+                    anchorY="top"
+                    outlineWidth={0.04}
+                >
+                    {lowTide ? 'ОТЛИВЫ' : 'ПРИЛИВЫ'}
+                </BillboardText>
+            </group>
+
+            <Moon reversed={!!reversedFactors.moonlight} onSelect={onSelect} />
+
+            <BillboardText
+                position={[0, RADIUS + 1.5, 0]}
+                fontSize={0.75}
+                color="#ffffff"
+                anchorX="center"
+                anchorY="bottom"
+                outlineWidth={0.045}
+            >
+                Земля
+            </BillboardText>
+            <BillboardText
+                position={[0, RADIUS + 1.05, 0]}
+                fontSize={0.5}
+                color={antigravity ? '#ff6644' : '#54b6ff'}
+                anchorX="center"
+                anchorY="bottom"
+                outlineWidth={0.04}
+            >
+                {antigravity ? 'РАСПАД' : 'ГРАВИТАЦИЯ'}
+            </BillboardText>
+        </group>
+    );
+}
+
+function GravityShell({ reversed, radius }) {
+    const meshRef = useRef();
+
+    useFrame((_, delta) => {
+        const mesh = meshRef.current;
+        if (!mesh) return;
+        const speed = reversed ? 1.0 : -1.0;
+        const next = mesh.scale.x + delta * speed;
+        const wrapped = reversed
+            ? (next > 2.6 ? 1.0 : next)
+            : (next < 1.0 ? 2.6 : next);
+        mesh.scale.setScalar(wrapped);
+
+        const alpha = reversed ? (2.6 - wrapped) / 1.6 : (wrapped - 1.0) / 1.6;
+        mesh.material.opacity = Math.max(0, Math.min(0.1, alpha * 0.1));
+    });
+
+    return (
+        <mesh ref={meshRef}>
+            <sphereGeometry args={[radius * 1.12, 16, 10]} />
+            <meshBasicMaterial
+                color={reversed ? '#ff4422' : '#3a6fd8'}
+                wireframe
+                transparent
+                opacity={0.1}
+                depthWrite={false}
+            />
+        </mesh>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════
+// КОМЕТА И МЕТАФИЗИЧЕСКИЕ ФАКТОРЫ
+// ═══════════════════════════════════════════════════════════
+
+function Comet({ slowed, onSelect }) {
+    const groupRef = useRef();
+    const tailRef = useRef();
+    const angle = useRef(0);
+    const tex = useMemo(() => circleSprite(), []);
+    const tailCount = 220;
+
+    const tailPositions = useMemo(() => new Float32Array(tailCount * 3), []);
+    const history = useMemo(
+        () => Array.from({ length: tailCount }, () => new THREE.Vector3()),
+        [],
+    );
+    const cursor = useRef(0);
+    const initialised = useRef(false);
+
+    useFrame((_, delta) => {
+        angle.current += delta * (slowed ? 0.06 : 0.4);
         const a = angle.current;
-        const x = Math.cos(a) * 70, rawZ = Math.sin(a) * 45;
+        const x = Math.cos(a) * 78;
+        const rawZ = Math.sin(a) * 52;
         const tilt = 0.35;
-        const y = rawZ * Math.sin(tilt), z = rawZ * Math.cos(tilt);
+        const y = rawZ * Math.sin(tilt);
+        const z = rawZ * Math.cos(tilt);
+
         if (groupRef.current) groupRef.current.position.set(x, y, z);
-        historyCursor.current = (historyCursor.current - 1 + tailCount) % tailCount;
-        history[historyCursor.current].set(x, y, z);
-        for (let i = 0; i < tailCount; i++) {
-            const item = history[(historyCursor.current + i) % tailCount];
-            tailPos[i * 3] = item.x;
-            tailPos[i * 3 + 1] = item.y;
-            tailPos[i * 3 + 2] = item.z;
+
+        // При первом кадре хвост стягивается в текущую точку, иначе он тянется из центра
+        if (!initialised.current) {
+            history.forEach((v) => v.set(x, y, z));
+            initialised.current = true;
+        }
+
+        cursor.current = (cursor.current - 1 + tailCount) % tailCount;
+        history[cursor.current].set(x, y, z);
+
+        for (let i = 0; i < tailCount; i += 1) {
+            const item = history[(cursor.current + i) % tailCount];
+            tailPositions[i * 3] = item.x;
+            tailPositions[i * 3 + 1] = item.y;
+            tailPositions[i * 3 + 2] = item.z;
         }
         if (tailRef.current) tailRef.current.geometry.attributes.position.needsUpdate = true;
     });
@@ -874,114 +854,279 @@ function Comet({ isReversed, setActiveFactor }) {
         <>
             <points ref={tailRef}>
                 <bufferGeometry>
-                    <bufferAttribute attach="attributes-position" count={tailCount} array={tailPos} itemSize={3} />
+                    <bufferAttribute attach="attributes-position" args={[tailPositions, 3]} />
                 </bufferGeometry>
-                <pointsMaterial size={0.55} color={isReversed ? '#4466aa' : '#aaddff'}
-                    transparent opacity={0.65} depthWrite={false} blending={THREE.AdditiveBlending}
-                    sizeAttenuation map={tex} alphaMap={tex} alphaTest={0.001} />
+                <pointsMaterial
+                    size={0.6}
+                    color={slowed ? '#4466aa' : '#aaddff'}
+                    transparent
+                    opacity={0.6}
+                    depthWrite={false}
+                    sizeAttenuation
+                    blending={THREE.AdditiveBlending}
+                    map={tex}
+                    alphaMap={tex}
+                    alphaTest={0.01}
+                />
             </points>
-            <group ref={groupRef}
-                onClick={(e) => { e.stopPropagation(); setActiveFactor('acceleration'); }}
+            <group
+                ref={groupRef}
+                onClick={(e) => { e.stopPropagation(); onSelect('acceleration'); }}
                 onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-                onPointerOut={() => { document.body.style.cursor = 'auto'; }}>
-                <mesh><sphereGeometry args={[0.7, 20, 20]} /><meshBasicMaterial color="#ffffff" /></mesh>
-                <mesh><sphereGeometry args={[1.5, 16, 16]} /><meshBasicMaterial color={isReversed ? '#2244aa' : '#88ccff'} transparent opacity={0.2} /></mesh>
-                <Text font="/Roboto-Regular.ttf" position={[0, 2.5, 0]} fontSize={1.1} color={isReversed ? '#aaddff' : '#ffffff'}
-                    anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.05}>
-                    {isReversed ? 'ЗАМЕДЛЕНИЕ' : 'УСКОРЕНИЕ'}
-                </Text>
+                onPointerOut={() => { document.body.style.cursor = 'auto'; }}
+            >
+                <mesh>
+                    <sphereGeometry args={[0.62, 20, 16]} />
+                    <meshBasicMaterial color="#ffffff" />
+                </mesh>
+                <mesh>
+                    <sphereGeometry args={[1.5, 16, 12]} />
+                    <meshBasicMaterial
+                        color={slowed ? '#2244aa' : '#88ccff'}
+                        transparent
+                        opacity={0.18}
+                        depthWrite={false}
+                        blending={THREE.AdditiveBlending}
+                    />
+                </mesh>
+                <BillboardText
+                    position={[0, 2.4, 0]}
+                    fontSize={1.05}
+                    color={slowed ? '#aaddff' : '#ffffff'}
+                    anchorX="center"
+                    anchorY="bottom"
+                    outlineWidth={0.05}
+                >
+                    {slowed ? 'ЗАМЕДЛЕНИЕ' : 'УСКОРЕНИЕ'}
+                </BillboardText>
             </group>
         </>
     );
 }
 
-// ─── Плавающий фактор ─────────────────────────────────────
-function FloatingFactor({ position, factorId, label, reverseLabel, color, reverseColor, isReversed, setActiveFactor, shape = 'octahedron' }) {
+function FloatingFactor({
+    position, factorId, label, reverseLabel, color, reverseColor, reversed, onSelect, shape = 'octahedron',
+}) {
     const groupRef = useRef();
     const meshRef = useRef();
-    useFrame((s, delta) => {
-        if (!groupRef.current) return;
-        groupRef.current.position.y = position[1] + Math.sin(s.clock.elapsedTime * 0.6 + position[0]) * 2;
+
+    useFrame((state, delta) => {
+        if (groupRef.current) {
+            groupRef.current.position.y = position[1]
+                + Math.sin(state.clock.elapsedTime * 0.6 + position[0]) * 2;
+        }
         if (meshRef.current) {
             meshRef.current.rotation.x += delta * 0.4;
             meshRef.current.rotation.y += delta * 0.6;
         }
     });
-    const col = isReversed ? reverseColor : color;
+
+    const tone = reversed ? reverseColor : color;
+
     return (
-        <group ref={groupRef} position={position}
-            onClick={(e) => { e.stopPropagation(); setActiveFactor(factorId); }}
+        <group
+            ref={groupRef}
+            position={position}
+            onClick={(e) => { e.stopPropagation(); onSelect(factorId); }}
             onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-            onPointerOut={() => { document.body.style.cursor = 'auto'; }}>
-            <mesh><sphereGeometry args={[3.5, 16, 16]} /><meshBasicMaterial color={col} transparent opacity={0.04} /></mesh>
+            onPointerOut={() => { document.body.style.cursor = 'auto'; }}
+        >
+            <mesh>
+                <sphereGeometry args={[3.5, 12, 10]} />
+                <meshBasicMaterial color={tone} transparent opacity={0.04} depthWrite={false} />
+            </mesh>
             <mesh ref={meshRef}>
                 {shape === 'octahedron' && <octahedronGeometry args={[1.5, 0]} />}
                 {shape === 'tetrahedron' && <tetrahedronGeometry args={[1.5, 0]} />}
                 {shape === 'icosahedron' && <icosahedronGeometry args={[1.5, 0]} />}
-                <meshBasicMaterial color={col} wireframe />
+                <meshBasicMaterial color={tone} wireframe />
             </mesh>
-            <Text font="/Roboto-Regular.ttf" position={[0, 3, 0]} fontSize={1.1} color={col}
-                anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.05}>
-                {isReversed ? reverseLabel : label}
-            </Text>
-            <Text font="/Roboto-Regular.ttf" position={[0, 1.8, 0]} fontSize={0.6} color="#ffffff" fillOpacity={0.4}
-                anchorX="center" anchorY="bottom" outlineColor="black" outlineWidth={0.03}>▶ кликни</Text>
+            <BillboardText
+                position={[0, 3, 0]}
+                fontSize={1.05}
+                color={tone}
+                anchorX="center"
+                anchorY="bottom"
+                outlineWidth={0.05}
+            >
+                {reversed ? reverseLabel : label}
+            </BillboardText>
         </group>
-    );
-}
-
-function Nebula({ position, color, size }) {
-    return (
-        <mesh position={position}>
-            <sphereGeometry args={[size, 16, 16]} />
-            <meshBasicMaterial color={color} transparent opacity={0.025} side={THREE.BackSide} />
-        </mesh>
     );
 }
 
 // ═══════════════════════════════════════════════════════════
 // ГЛАВНАЯ СЦЕНА
 // ═══════════════════════════════════════════════════════════
+
 export default function Cosmos() {
-    const { reversedFactors, setActiveFactor } = useStore();
+    const reversedFactors = useStore((s) => s.reversedFactors);
+    const setActiveFactor = useStore((s) => s.setActiveFactor);
+
+    const starTex = useMemo(() => starSprite(), []);
+    const mercuryTex = useMemo(() => mercuryTexture(), []);
+    const venusTex = useMemo(() => venusTexture(), []);
+    const marsTex = useMemo(() => marsTexture(), []);
+    const jupiterTex = useMemo(() => jupiterTexture(), []);
+    const saturnTex = useMemo(() => saturnTexture(), []);
+
+    const starRadius = useMemo(() => [150, 320], []);
+    const dustRadius = useMemo(() => [120, 260], []);
 
     return (
         <group>
-            <StarField />
-            <Nebula position={[-60, 20, -40]} color="#4422ff" size={35} />
-            <Nebula position={[80, -15, 30]} color="#ff3300" size={28} />
-            <Nebula position={[10, 40, -80]} color="#00aaff" size={40} />
+            <StarShell count={2600} seed={0x571} size={1.2} radiusRange={starRadius} saturation={0.25} tex={starTex} />
+            <StarShell count={320} seed={0x572} size={3.2} radiusRange={dustRadius} saturation={0.4} tex={starTex} />
+            <MilkyWay scattered={!!reversedFactors.galaxy} onSelect={setActiveFactor} />
 
-            <ambientLight intensity={0.28} />
+            <Nebula position={[-120, 40, -90]} color="#6a4bff" size={95} />
+            <Nebula position={[140, -30, 60]} color="#ff4a3c" size={78} rotation={0.7} />
+            <Nebula position={[20, 80, -150]} color="#28b8ff" size={110} rotation={-0.4} />
 
-            <Sun isReversed={!!reversedFactors['sun']} setActiveFactor={setActiveFactor} />
-            <SolarRadiation isReversed={!!reversedFactors['radiation']} setActiveFactor={setActiveFactor} />
+            <ambientLight intensity={0.16} />
 
-            <OrbitRing rx={13} rz={9} color="#aaaaaa" opacity={0.15} />
-            <OrbitRing rx={22} rz={16} color="#4488ff" opacity={0.13} />
+            <Sun dimmed={!!reversedFactors.sun} onSelect={setActiveFactor} />
+            <SolarWind shielded={!!reversedFactors.radiation} onSelect={setActiveFactor} />
+
+            <OrbitRing rx={13} rz={9.5} color="#aaaaaa" opacity={0.14} />
+            <OrbitRing rx={18} rz={13} color="#e8c98a" opacity={0.13} />
+            <OrbitRing rx={25} rz={18} color="#4488ff" opacity={0.14} />
             <OrbitRing rx={33} rz={24} color="#cc4422" opacity={0.13} />
+            <OrbitRing rx={48} rz={35} color="#c9a06a" opacity={0.11} />
+            <OrbitRing rx={64} rz={46} color="#e0d0a0" opacity={0.1} />
 
-            <Mercury reversedFactors={reversedFactors} setActiveFactor={setActiveFactor} />
-            <EarthSystem reversedFactors={reversedFactors} setActiveFactor={setActiveFactor} />
-            <Mars reversedFactors={reversedFactors} setActiveFactor={setActiveFactor} />
-            <Comet isReversed={!!reversedFactors['acceleration']} setActiveFactor={setActiveFactor} />
+            <OrbitingPlanet
+                factorId="heating"
+                label="Меркурий"
+                subtitle="нагревание"
+                reverseSubtitle="остывание"
+                reversed={!!reversedFactors.heating}
+                radius={0.62}
+                orbit={[13, 9.5]}
+                orbitSpeed={0.55}
+                spinSpeed={0.04}
+                texture={mercuryTex}
+                emissive="#552200"
+                emissiveIntensity={reversedFactors.heating ? 0.08 : 0.28}
+                labelColor="#cfcfcf"
+                onSelect={setActiveFactor}
+                startAngle={0.5}
+            />
 
-            <FloatingFactor position={[-75, 12, -20]} factorId="void"
-                label="ПУСТОТА" reverseLabel="ИЗБЫТОК"
-                color="#6644ff" reverseColor="#ffaa00"
-                isReversed={!!reversedFactors['void']} setActiveFactor={setActiveFactor} shape="octahedron" />
+            <OrbitingPlanet
+                factorId="venusHeat"
+                label="Венера"
+                subtitle="парниковый эффект"
+                reverseSubtitle="остывание"
+                reversed={!!reversedFactors.venusHeat}
+                radius={0.95}
+                orbit={[18, 13]}
+                orbitSpeed={0.42}
+                // Венера вращается в обратную сторону — единственная такая планета
+                spinSpeed={-0.02}
+                axialTilt={3.09}
+                texture={venusTex}
+                emissive={reversedFactors.venusHeat ? '#221a10' : '#6b4a12'}
+                emissiveIntensity={reversedFactors.venusHeat ? 0.1 : 0.4}
+                atmosphere="#ffd89a"
+                labelColor="#ffe1a8"
+                onSelect={setActiveFactor}
+                startAngle={3.4}
+            />
 
-            <FloatingFactor position={[85, -8, 25]} factorId="infinity"
-                label="БЕСКОНЕЧНОСТЬ" reverseLabel="ОГРАНИЧЕННОСТЬ"
-                color="#00ccff" reverseColor="#ff4488"
-                isReversed={!!reversedFactors['infinity']} setActiveFactor={setActiveFactor} shape="icosahedron" />
+            <EarthSystem reversedFactors={reversedFactors} onSelect={setActiveFactor} />
 
+            <OrbitingPlanet
+                factorId="freezing"
+                label="Марс"
+                subtitle="замерзание"
+                reverseSubtitle="оттепель"
+                reversed={!!reversedFactors.freezing}
+                radius={0.78}
+                orbit={[33, 24]}
+                orbitSpeed={0.22}
+                spinSpeed={0.48}
+                axialTilt={0.44}
+                texture={marsTex}
+                emissive={reversedFactors.freezing ? '#00223f' : '#3a1c0d'}
+                emissiveIntensity={reversedFactors.freezing ? 0.16 : 0.24}
+                atmosphere="#cc6633"
+                labelColor="#ff9c7a"
+                onSelect={setActiveFactor}
+                startAngle={4.2}
+            />
 
+            <OrbitingPlanet
+                factorId="jupiterStorm"
+                label="Юпитер"
+                subtitle="великое пятно"
+                reverseSubtitle="затишье"
+                reversed={!!reversedFactors.jupiterStorm}
+                radius={2.6}
+                orbit={[48, 35]}
+                orbitSpeed={0.11}
+                spinSpeed={0.85}
+                axialTilt={0.05}
+                texture={jupiterTex}
+                labelColor="#f0d6b0"
+                onSelect={setActiveFactor}
+                startAngle={1.1}
+            />
 
-            <FloatingFactor position={[-30, 22, -55]} factorId="symbiosis"
-                label="СИМБИОЗ" reverseLabel="ПАРАЗИТИЗМ"
-                color="#33ff99" reverseColor="#88bb33"
-                isReversed={!!reversedFactors['symbiosis']} setActiveFactor={setActiveFactor} shape="octahedron" />
+            <OrbitingPlanet
+                factorId="saturnRings"
+                label="Сатурн"
+                subtitle="кольца"
+                reverseSubtitle="распад колец"
+                reversed={!!reversedFactors.saturnRings}
+                radius={2.15}
+                orbit={[64, 46]}
+                orbitSpeed={0.075}
+                spinSpeed={0.78}
+                axialTilt={0.47}
+                texture={saturnTex}
+                labelColor="#f2e4bd"
+                onSelect={setActiveFactor}
+                startAngle={5.6}
+            >
+                <SaturnRings radius={2.15} decaying={!!reversedFactors.saturnRings} />
+            </OrbitingPlanet>
+
+            <Comet slowed={!!reversedFactors.acceleration} onSelect={setActiveFactor} />
+
+            <FloatingFactor
+                position={[-95, 14, -28]}
+                factorId="void"
+                label="ПУСТОТА"
+                reverseLabel="ИЗБЫТОК"
+                color="#6644ff"
+                reverseColor="#ffaa00"
+                reversed={!!reversedFactors.void}
+                onSelect={setActiveFactor}
+            />
+            <FloatingFactor
+                position={[100, -10, 30]}
+                factorId="infinity"
+                label="БЕСКОНЕЧНОСТЬ"
+                reverseLabel="ОГРАНИЧЕННОСТЬ"
+                color="#00ccff"
+                reverseColor="#ff4488"
+                reversed={!!reversedFactors.infinity}
+                onSelect={setActiveFactor}
+                shape="icosahedron"
+            />
+            <FloatingFactor
+                position={[-40, 26, -70]}
+                factorId="symbiosis"
+                label="СИМБИОЗ"
+                reverseLabel="ПАРАЗИТИЗМ"
+                color="#33ff99"
+                reverseColor="#88bb33"
+                reversed={!!reversedFactors.symbiosis}
+                onSelect={setActiveFactor}
+            />
         </group>
     );
 }
+
+useTexture.preload(MOON_TEXTURE);

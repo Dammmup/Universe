@@ -1,980 +1,561 @@
-import React, { useRef, useMemo, useEffect, useLayoutEffect } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Line, Text } from '@react-three/drei';
+import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { useStore } from '../store';
 import gsap from 'gsap';
+import { useStore } from '../store';
+import { latLonToArray, latLonToVec3, seededRandom, sunDirection } from '../lib/geo';
+import { circleSprite, starSprite } from '../lib/sprites';
+import { auroraFragment, auroraVertex } from '../lib/shaders/aurora';
+import EarthGlobe, { PlanetAtmosphere } from './earth/EarthGlobe';
+import NatureLayer from './earth/NatureLayer';
+import CityLayer from './earth/CityLayer';
 
-// ─── Утилиты ────────────────────────────────────────────────────────────────
+const R = 10;
+const PLANET_OFFSET = [0, -6.5, 0];
 
-/** Преобразует сферические координаты (радиус, phi, theta) в XYZ */
-function sph(r, phi, theta) {
-    return [
-        r * Math.sin(phi) * Math.cos(theta),
-        r * Math.cos(phi),
-        r * Math.sin(phi) * Math.sin(theta),
-    ];
-}
+// ─── Небо: звёзды, солнце, луна ──────────────────────────────────────────────
 
-/** Кватернион «смотреть от центра сферы» по нормали в точке XYZ */
-function surfaceQuaternion(pos) {
-    SURFACE_NORMAL.fromArray(pos).normalize();
-    return SURFACE_QUATERNION.setFromUnitVectors(SURFACE_UP, SURFACE_NORMAL);
-}
+/**
+ * Звёздное небо в двух слоях: россыпь слабых звёзд и отдельные яркие светила.
+ * Разделение нужно потому, что pointsMaterial задаёт один размер точки на весь
+ * буфер — двумя слоями получаем разброс величин без кастомного шейдера.
+ */
+function StarLayer({ count, seed, size, minRadius, bright, dimmed, tex }) {
+    const pointsRef = useRef();
 
-/** Случайное число в диапазоне [a, b) */
-function rnd(a, b) { return a + Math.random() * (b - a); }
+    const [positions, colors] = useMemo(() => {
+        const rand = seededRandom(seed);
+        const pos = new Float32Array(count * 3);
+        const col = new Float32Array(count * 3);
+        const color = new THREE.Color();
 
-// ─── Константы ───────────────────────────────────────────────────────────────
+        for (let i = 0; i < count; i += 1) {
+            const radius = minRadius + rand() * 90;
+            const theta = rand() * Math.PI * 2;
+            const phi = Math.acos(2 * rand() - 1);
+            pos[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+            pos[i * 3 + 1] = radius * Math.cos(phi);
+            pos[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
 
-const R = 10;            // радиус планеты
-const HALF = Math.PI / 2; // 90°
-const SURFACE_UP = new THREE.Vector3(0, 1, 0);
-const SURFACE_NORMAL = new THREE.Vector3();
-const SURFACE_QUATERNION = new THREE.Quaternion();
-
-// ─── Генерация статичных данных (useMemo-safe) ────────────────────────────────
-
-function usePlanetData() {
-    return useMemo(() => {
-        // Горы — передняя полусфера (theta ≈ 0±60°, phil ≈ 30-120°)
-        const mountains = Array.from({ length: 18 }, (_, i) => {
-            const phi = rnd(0.5, 2.2);
-            const theta = rnd(-1.0, 1.0);
-            return {
-                pos: sph(R + 0.05, phi, theta),
-                height: rnd(0.8, 2.8),
-                radius: rnd(0.4, 1.0),
-                color: i % 3 === 0 ? '#7a6a5a' : i % 3 === 1 ? '#8a8a9a' : '#5a7060',
-            };
-        });
-
-        // Деревья
-        const trees = Array.from({ length: 30 }, () => {
-            const phi = rnd(0.6, 2.0);
-            const theta = rnd(-0.9, 0.9);
-            return { pos: sph(R + 0.1, phi, theta), scale: rnd(0.3, 0.8) };
-        });
-
-        // Животные (простые точки-метки)
-        const animals = Array.from({ length: 12 }, () => {
-            const phi = rnd(0.8, 1.8);
-            const theta = rnd(-0.8, 0.8);
-            return { pos: sph(R + 0.25, phi, theta), type: Math.floor(rnd(0, 3)) };
-        });
-
-        // Стая птиц — относительные офсеты от центра стаи
-        const birdOffsets = Array.from({ length: 12 }, (_, i) => ({
-            dx: rnd(-3, 3),
-            dy: rnd(-1, 1),
-            dz: rnd(-1.5, 1.5),
-            phase: i * 0.5,
-        }));
-
-        // Звёзды
-        const stars = Array.from({ length: 300 }, () => {
-            const phi = Math.acos(rnd(-1, 1));
-            const theta = rnd(0, Math.PI * 2);
-            const r = rnd(30, 60);
-            return sph(r, phi, theta);
-        });
-
-        // Здания цивилизации — задняя полусфера (theta ≈ PI±70°)
-        const buildings = Array.from({ length: 50 }, () => {
-            const phi = rnd(0.4, 2.4);
-            const theta = Math.PI + rnd(-1.1, 1.1);
-            const era = Math.floor(rnd(0, 4)); // 0=камень 1=средневековье 2=индустрия 3=футуризм
-            const h = era === 0 ? rnd(0.3, 0.7) :
-                era === 1 ? rnd(0.6, 1.5) :
-                    era === 2 ? rnd(1.2, 3.5) : rnd(3.0, 6.0);
-            const w = era === 3 ? rnd(0.15, 0.35) : rnd(0.2, 0.6);
-            const color = era === 0 ? '#6b5a3a' :
-                era === 1 ? '#7a6a5a' :
-                    era === 2 ? '#444455' : '#88aacc';
-            return { pos: sph(R + 0.05, phi, theta), height: h, width: w, color, era };
-        });
-
-        return { mountains, trees, animals, birdOffsets, stars, buildings };
-    }, []);
-}
-
-// ─── Процедурная текстура Земли ──────────────────────────────────────────────
-function useEarthTexture() {
-    const [tex, setTex] = React.useState(null);
-
-    React.useEffect(() => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 1024;
-        canvas.height = 512;
-        const ctx = canvas.getContext('2d');
-
-        // Градиент океана (глубокий синий)
-        const grd = ctx.createLinearGradient(0, 0, 0, 512);
-        grd.addColorStop(0, "#001133");
-        grd.addColorStop(0.5, "#004488");
-        grd.addColorStop(1, "#001133");
-        ctx.fillStyle = grd;
-        ctx.fillRect(0, 0, 1024, 512);
-
-        let seed = 12345;
-        const random = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
-
-        // Генерация континентов (пятна зелени и пустынь)
-        for (let i = 0; i < 400; i++) {
-            const x = random() * 1024;
-            const y = random() * 512;
-            const r = random() * 60 + 20;
-
-            const isDesert = (y > 100 && y < 220) || (y > 290 && y < 410) ? random() > 0.3 : false;
-            const centerCol = isDesert ? '#d4b872' : '#2d6a2d';
-            // Используем непрозрачный или полупрозрачный rgba вместо 8-значного hex для совместимости
-            const edgeCol = isDesert ? 'rgba(212, 184, 114, 0)' : 'rgba(45, 106, 45, 0)';
-
-            const drawCircle = (cx, cy) => {
-                const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-                bg.addColorStop(0, centerCol);
-                bg.addColorStop(1, edgeCol);
-                ctx.fillStyle = bg;
-                ctx.beginPath();
-                ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                ctx.fill();
-            };
-
-            drawCircle(x, y);
-            if (x - r < 0) drawCircle(x + 1024, y);
-            if (x + r > 1024) drawCircle(x - 1024, y);
+            // Разброс спектральных классов: голубые, белые и красные звёзды
+            const roll = rand();
+            const hue = roll < 0.18 ? 0.58 : roll < 0.78 ? 0.12 : 0.04;
+            color.setHSL(hue, roll < 0.18 ? 0.4 : 0.22, (bright ? 0.82 : 0.7) + rand() * 0.18);
+            col[i * 3] = color.r;
+            col[i * 3 + 1] = color.g;
+            col[i * 3 + 2] = color.b;
         }
-
-        // Полярные льды
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, 1024, 40);
-        ctx.fillRect(0, 512 - 40, 1024, 40);
-        for (let i = 0; i < 200; i++) {
-            ctx.beginPath(); ctx.arc(random() * 1024, 40, random() * 30, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath(); ctx.arc(random() * 1024, 512 - 40, random() * 30, 0, Math.PI * 2); ctx.fill();
-        }
-
-        const newTex = new THREE.CanvasTexture(canvas);
-        newTex.colorSpace = THREE.SRGBColorSpace;
-        setTex(newTex);
-
-        return () => newTex.dispose();
-    }, []);
-
-    return tex;
-}
-
-// ─── Восстановленные Компоненты Окружения ────────────────────────────────────
-function SkySystem({ stars, reversedFactors }) {
-    const starsRef = useRef();
-    const sunRef = useRef();
-    const moonRef = useRef();
-    const starPositions = useMemo(() => {
-        const arr = new Float32Array(stars.length * 3);
-        stars.forEach((s, i) => {
-            arr[i * 3] = s[0]; arr[i * 3 + 1] = s[1]; arr[i * 3 + 2] = s[2];
-        });
-        return arr;
-    }, [stars]);
-
-    useFrame((state) => {
-        const t = state.clock.elapsedTime * 0.15;
-        if (sunRef.current) sunRef.current.position.set(Math.cos(t) * 25, 5, Math.sin(t) * 25);
-        if (moonRef.current) moonRef.current.position.set(Math.cos(t + Math.PI) * 20, -5, Math.sin(t + Math.PI) * 20);
-        if (starsRef.current && reversedFactors['starField']) starsRef.current.rotation.y = t * 0.2;
-    });
-
-    return (
-        <group>
-            <points ref={starsRef}>
-                <bufferGeometry>
-                    <bufferAttribute attach="attributes-position" args={[starPositions, 3]} count={stars.length} itemSize={3} />
-                </bufferGeometry>
-                <pointsMaterial color="#ffffff" size={0.15} sizeAttenuation transparent opacity={0.6} />
-            </points>
-            <mesh ref={sunRef}>
-                <sphereGeometry args={[2, 16, 16]} />
-                <meshBasicMaterial color="#ffccaa" />
-                <pointLight intensity={reversedFactors['sunEnergy'] ? 0.2 : 1.5} distance={100} decay={2} />
-            </mesh>
-            <mesh ref={moonRef}>
-                <sphereGeometry args={[1.2, 16, 16]} />
-                <meshStandardMaterial color="#888899" roughness={1} metalness={0} />
-                <pointLight intensity={reversedFactors['moonPhase'] ? 0 : 0.2} distance={50} color="#aaddff" />
-            </mesh>
-        </group>
-    );
-}
-
-function Ocean() {
-    const ref = useRef();
-    useFrame((state) => {
-        if (!ref.current) return;
-        const scale = 1.0 + Math.sin(state.clock.elapsedTime * 2) * 0.005;
-        ref.current.scale.setScalar(scale);
-    });
-    return (
-        <mesh ref={ref}>
-            <sphereGeometry args={[10.02, 64, 64]} />
-            <meshPhysicalMaterial color="#002244" transparent opacity={0.6} roughness={0.1} metalness={0.1} transmission={0.9} ior={1.33} />
-        </mesh>
-    );
-}
-
-function Atmosphere({ reversed }) {
-    return (
-        <mesh>
-            <sphereGeometry args={[10.4, 64, 64]} />
-            <meshPhysicalMaterial color={reversed ? "#ffaa88" : "#4488ff"} transparent opacity={reversed ? 0.15 : 0.35} roughness={1} depthWrite={false} side={THREE.DoubleSide} blending={THREE.AdditiveBlending} />
-        </mesh>
-    );
-}
-
-function Aurora({ reversed }) {
-    const ref1 = useRef(), ref2 = useRef();
-    useFrame((state) => {
-        const t = state.clock.elapsedTime;
-        if (ref1.current) { ref1.current.rotation.z = t * 0.5; ref1.current.scale.setScalar(1 + Math.sin(t) * 0.05); }
-        if (ref2.current) { ref2.current.rotation.z = -t * 0.4; ref2.current.scale.setScalar(1 + Math.cos(t) * 0.05); }
-    });
-    if (reversed) return null;
-    return (
-        <group>
-            <mesh ref={ref1} position={[0, 9.8, 0]} rotation={[Math.PI / 2, 0, 0]}>
-                <torusGeometry args={[3, 0.5, 16, 64]} />
-                <meshBasicMaterial color="#00ffcc" transparent opacity={0.3} blending={THREE.AdditiveBlending} depthWrite={false} />
-            </mesh>
-            <mesh ref={ref2} position={[0, -9.8, 0]} rotation={[Math.PI / 2, 0, 0]}>
-                <torusGeometry args={[3, 0.5, 16, 64]} />
-                <meshBasicMaterial color="#00ffcc" transparent opacity={0.3} blending={THREE.AdditiveBlending} depthWrite={false} />
-            </mesh>
-        </group>
-    );
-}
-
-// ─── Instanced Компоненты для оптимизации ────────────────────────────────────
-
-function MountainsInstanced({ mountains, reversed }) {
-    const mainRef = useRef();
-    const snowRef = useRef();
-    const dummy = useMemo(() => new THREE.Object3D(), []);
-    const colors = useMemo(() => mountains.map(m => new THREE.Color(m.color)), [mountains]);
-
-    useEffect(() => {
-        if (!mainRef.current) return;
-        mountains.forEach((m, i) => {
-            mainRef.current.setColorAt(i, colors[i]);
-        });
-        mainRef.current.instanceColor.needsUpdate = true;
-    }, [mountains, colors]);
-
-    useFrame(() => {
-        if (!mainRef.current || !snowRef.current) return;
-
-        mountains.forEach((m, i) => {
-            let px = m.pos[0], py = m.pos[1], pz = m.pos[2];
-            if (reversed) {
-                px += (Math.random() - 0.5) * 0.08;
-                py += (Math.random() - 0.5) * 0.08;
-                pz += (Math.random() - 0.5) * 0.08;
-            }
-            dummy.position.set(px, py, pz);
-            dummy.quaternion.copy(surfaceQuaternion([px, py, pz]));
-
-            // Основа
-            dummy.scale.set(1, 1, 1);
-            dummy.translateY(m.height / 2);
-            dummy.scale.set(m.radius, m.height, m.radius);
-            dummy.updateMatrix();
-            mainRef.current.setMatrixAt(i, dummy.matrix);
-
-            // Снег
-            dummy.position.set(px, py, pz);
-            dummy.scale.set(1, 1, 1);
-            dummy.translateY(m.height * 0.85);
-            dummy.scale.set(m.radius * 0.35, m.height * 0.22, m.radius * 0.35);
-            dummy.updateMatrix();
-            snowRef.current.setMatrixAt(i, dummy.matrix);
-        });
-
-        mainRef.current.instanceMatrix.needsUpdate = true;
-        snowRef.current.instanceMatrix.needsUpdate = true;
-    });
-
-    return (
-        <group>
-            <instancedMesh ref={mainRef} args={[null, null, mountains.length]}>
-                <coneGeometry args={[1, 1, 7]} />
-                <meshStandardMaterial roughness={0.9} />
-            </instancedMesh>
-            <instancedMesh ref={snowRef} args={[null, null, mountains.length]}>
-                <coneGeometry args={[1, 1, 6]} />
-                <meshStandardMaterial color="#ddeeff" roughness={0.5} />
-            </instancedMesh>
-        </group>
-    );
-}
-
-function TreesInstanced({ trees, reversed }) {
-    const crownRef = useRef();
-    const trunkRef = useRef();
-    const dummy = useMemo(() => new THREE.Object3D(), []);
-
-    const cCrown = useMemo(() => new THREE.Color(), []);
-    const cTrunk = useMemo(() => new THREE.Color(), []);
-
-    useFrame((state) => {
-        if (!crownRef.current || !trunkRef.current) return;
-        const t = state.clock.elapsedTime;
-
-        cCrown.setHex(reversed ? 0x7a5a20 : 0x4a7a2a);
-        cTrunk.setHex(reversed ? 0x885522 : 0x336622);
-
-        trees.forEach((tree, i) => {
-            const { pos, scale } = tree;
-            let s = scale * (reversed ? (0.6 + Math.sin(t * 3) * 0.05) : (1.0 + Math.sin(t * 1.5 + pos[0]) * 0.04));
-
-            // Ствол
-            dummy.position.set(...pos);
-            dummy.quaternion.copy(surfaceQuaternion(pos));
-            dummy.scale.setScalar(s);
-            dummy.translateY(0.2);
-            dummy.updateMatrix();
-            trunkRef.current.setMatrixAt(i, dummy.matrix);
-            trunkRef.current.setColorAt(i, cTrunk);
-
-            // Крона
-            dummy.position.set(...pos);
-            dummy.translateY(0.9);
-            dummy.updateMatrix();
-            crownRef.current.setMatrixAt(i, dummy.matrix);
-            crownRef.current.setColorAt(i, cCrown);
-        });
-
-        trunkRef.current.instanceMatrix.needsUpdate = true;
-        crownRef.current.instanceMatrix.needsUpdate = true;
-        // Мы обновляем цвета в useLayoutEffect 1 раз, и затем каждый кадр. Это безопасно, так как буфер уже существует.
-        trunkRef.current.instanceColor.needsUpdate = true;
-        crownRef.current.instanceColor.needsUpdate = true;
-    });
-
-    return (
-        <group>
-            <instancedMesh ref={crownRef} args={[null, null, trees.length]}>
-                <coneGeometry args={[0.45, 1.1, 6]} />
-                <meshStandardMaterial />
-            </instancedMesh>
-            <instancedMesh ref={trunkRef} args={[null, null, trees.length]}>
-                <cylinderGeometry args={[0.1, 0.15, 0.5, 5]} />
-                <meshStandardMaterial roughness={0.9} />
-            </instancedMesh>
-        </group>
-    );
-}
-
-function AnimalsInstanced({ animals, reversed }) {
-    const bodyRef = useRef();
-    const headRef = useRef();
-    const dummy = useMemo(() => new THREE.Object3D(), []);
-    const colors = useMemo(() => ['#cc8844', '#886644', '#aa9966'].map(c => new THREE.Color(c)), []);
-
-    useLayoutEffect(() => {
-        if (!bodyRef.current || !headRef.current) return;
-        animals.forEach((a, i) => {
-            bodyRef.current.setColorAt(i, colors[a.type]);
-            headRef.current.setColorAt(i, colors[a.type]);
-        });
-        bodyRef.current.instanceColor.needsUpdate = true;
-        headRef.current.instanceColor.needsUpdate = true;
-    }, [animals, colors]);
-
-    useFrame((state) => {
-        if (!bodyRef.current || !headRef.current) return;
-        const t = state.clock.elapsedTime;
-
-        animals.forEach((a, i) => {
-            let px = a.pos[0], py = a.pos[1], pz = a.pos[2];
-            let s = 1.0;
-            let visible = true;
-
-            if (reversed) {
-                visible = Math.sin(t * 4 + px * 10) > -0.3;
-                s = 0.5 + Math.sin(t * 2) * 0.1;
-            } else {
-                px += Math.sin(t * 0.8 + a.type) * 0.15;
-                py += Math.cos(t * 1.1 + a.type) * 0.05;
-                pz += Math.cos(t * 0.9 + a.type) * 0.15;
-            }
-
-            if (!visible) s = 0; // Скрыть через масштаб (т.к. visible не работает для инстансов)
-
-            dummy.position.set(px, py, pz);
-            dummy.quaternion.copy(surfaceQuaternion([px, py, pz]));
-            dummy.scale.setScalar(s);
-            dummy.updateMatrix();
-            bodyRef.current.setMatrixAt(i, dummy.matrix);
-
-            dummy.position.set(px, py, pz);
-            dummy.translateY(0.28);
-            dummy.translateZ(0.12);
-            dummy.updateMatrix();
-            headRef.current.setMatrixAt(i, dummy.matrix);
-        });
-
-        bodyRef.current.instanceMatrix.needsUpdate = true;
-        headRef.current.instanceMatrix.needsUpdate = true;
-    });
-
-    return (
-        <group>
-            <instancedMesh ref={bodyRef} args={[null, null, animals.length]}>
-                <sphereGeometry args={[0.22, 6, 5]} />
-                <meshStandardMaterial roughness={0.8} />
-            </instancedMesh>
-            <instancedMesh ref={headRef} args={[null, null, animals.length]}>
-                <sphereGeometry args={[0.13, 5, 4]} />
-                <meshStandardMaterial roughness={0.8} />
-            </instancedMesh>
-        </group>
-    );
-}
-
-function BirdFlockInstanced({ birdOffsets, reversed }) {
-    const flockRef = useRef();
-    const meshRef = useRef();
-    const dummy = useMemo(() => new THREE.Object3D(), []);
-
-    useFrame((state) => {
-        if (!flockRef.current || !meshRef.current) return;
-        const t = state.clock.elapsedTime;
-
-        if (reversed) {
-            flockRef.current.position.set(
-                Math.sin(t * 0.3) * 2,
-                12 + Math.sin(t * 0.5) * 0.5,
-                Math.cos(t * 0.3) * 2
-            );
-            birdOffsets.forEach((off, i) => {
-                dummy.position.set(
-                    off.dx * 3 + Math.sin(t + off.phase) * 2,
-                    off.dy * 2 + Math.cos(t * 1.5 + off.phase) * 1,
-                    off.dz * 3
-                );
-                dummy.scale.setScalar(0.06 + Math.sin(t * 6 + off.phase) * 0.015);
-                dummy.updateMatrix();
-                meshRef.current.setMatrixAt(i, dummy.matrix);
-            });
-        } else {
-            flockRef.current.position.set(
-                Math.sin(t * 0.4) * 5,
-                12 + Math.sin(t * 0.7) * 1.5,
-                Math.cos(t * 0.4) * 5
-            );
-            birdOffsets.forEach((off, i) => {
-                dummy.position.set(
-                    off.dx + Math.sin(t * 1.2 + off.phase) * 0.3,
-                    off.dy + Math.sin(t * 2 + off.phase) * 0.2,
-                    off.dz
-                );
-                dummy.scale.setScalar(0.07 + Math.sin(t * 8 + off.phase) * 0.02);
-                dummy.updateMatrix();
-                meshRef.current.setMatrixAt(i, dummy.matrix);
-            });
-        }
-        meshRef.current.instanceMatrix.needsUpdate = true;
-    });
-
-    return (
-        <group ref={flockRef}>
-            <instancedMesh ref={meshRef} args={[null, null, birdOffsets.length]}>
-                <sphereGeometry args={[0.07, 4, 3]} />
-                <meshBasicMaterial color="#dddddd" />
-            </instancedMesh>
-        </group>
-    );
-}
-
-function CivBuildingsInstanced({ buildings, reversed }) {
-    const ref = useRef();
-    const dummy = useMemo(() => new THREE.Object3D(), []);
-    const colors = useMemo(() => buildings.map(b => new THREE.Color(b.color)), [buildings]);
-    const ruinsColor = useMemo(() => new THREE.Color(0x333322), []);
-
-    // Хранение текущего scale Y для плавной анимации
-    const currentScales = useRef(new Float32Array(buildings.length).fill(0.01));
-
-    useLayoutEffect(() => {
-        if (!ref.current) return;
-        buildings.forEach((b, i) => {
-            ref.current.setColorAt(i, colors[i]);
-        });
-        ref.current.instanceColor.needsUpdate = true;
-    }, [buildings, colors]);
+        return [pos, col];
+    }, [count, seed, minRadius, bright]);
 
     useFrame((state, delta) => {
-        if (!ref.current) return;
-
-        buildings.forEach((b, i) => {
-            const curY = currentScales.current[i];
-            if (reversed) {
-                const nextY = curY + (b.height * 0.3 - curY) * delta * 0.5;
-                ref.current.setColorAt(i, ruinsColor);
-                currentScales.current[i] = nextY;
-            } else {
-                const nextY = Math.min(1.0, curY + delta * 0.3);
-                ref.current.setColorAt(i, colors[i]);
-                currentScales.current[i] = nextY;
-            }
-            const nextY = currentScales.current[i];
-
-            dummy.position.set(...b.pos);
-            dummy.quaternion.copy(surfaceQuaternion(b.pos));
-            dummy.scale.set(1, 1, 1);
-            dummy.translateY((b.height * nextY) / 2); // Центр бокса
-            dummy.scale.set(b.width, b.height * nextY, b.width);
-            dummy.updateMatrix();
-            ref.current.setMatrixAt(i, dummy.matrix);
-        });
-
-        ref.current.instanceColor.needsUpdate = true;
-        ref.current.instanceMatrix.needsUpdate = true;
+        const points = pointsRef.current;
+        if (!points) return;
+        points.rotation.y += delta * 0.004;
+        const twinkle = bright ? 0.85 + Math.sin(state.clock.elapsedTime * 1.7) * 0.12 : 0.8;
+        points.material.opacity = dimmed ? 0.14 : twinkle;
     });
 
     return (
-        <instancedMesh ref={ref} args={[null, null, buildings.length]}>
-            <boxGeometry args={[1, 1, 1]} />
-            <meshStandardMaterial roughness={0.5} metalness={0.5} />
-        </instancedMesh>
-    );
-}
-function Smog({ reversed }) {
-    const ref = useRef();
-    useFrame((state, delta) => {
-        if (!ref.current) return;
-        const t = state.clock.elapsedTime;
-        ref.current.rotation.y -= delta * 0.05;
-        if (reversed) {
-            ref.current.material.opacity = Math.max(0.0, ref.current.material.opacity - delta * 0.2);
-        } else {
-            ref.current.material.opacity = Math.min(0.55, ref.current.material.opacity + delta * 0.1);
-            ref.current.material.color.setHex(0x334433);
-            ref.current.scale.setScalar(1.04 + Math.sin(t * 2) * 0.01);
-        }
-    });
-    return (
-        <mesh ref={ref}>
-            <sphereGeometry args={[R + 0.65, 28, 28]} />
-            <meshStandardMaterial color="#334433" transparent opacity={0.0} roughness={1} side={THREE.FrontSide} />
-        </mesh>
-    );
-}
-
-// ─── Компонент: Война (взрывы) ───────────────────────────────────────────────
-function WarParticles({ reversed }) {
-    const ref = useRef();
-    const count = 40;
-
-    const positions = useMemo(() => {
-        const arr = new Float32Array(count * 3);
-        for (let i = 0; i < count; i++) {
-            const phi = rnd(0.4, 2.4);
-            const theta = Math.PI + rnd(-1.1, 1.1);
-            const [x, y, z] = sph(R + 0.5, phi, theta);
-            arr[i * 3] = x; arr[i * 3 + 1] = y; arr[i * 3 + 2] = z;
-        }
-        return arr;
-    }, []);
-
-    useFrame((state) => {
-        if (!ref.current) return;
-        const t = state.clock.elapsedTime;
-        ref.current.visible = !reversed;
-        if (!reversed) {
-            ref.current.material.opacity = 0.6 + Math.sin(t * 5) * 0.3;
-            ref.current.material.size = 0.15 + Math.sin(t * 7) * 0.08;
-        }
-    });
-
-    return (
-        <points ref={ref}>
+        <points ref={pointsRef}>
             <bufferGeometry>
                 <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+                <bufferAttribute attach="attributes-color" args={[colors, 3]} />
             </bufferGeometry>
-            <pointsMaterial color="#ff4400" size={0.18} transparent opacity={0.8} sizeAttenuation blending={THREE.AdditiveBlending} />
+            <pointsMaterial
+                size={size}
+                vertexColors
+                transparent
+                opacity={0.85}
+                depthWrite={false}
+                sizeAttenuation
+                blending={THREE.AdditiveBlending}
+                map={tex}
+                alphaMap={tex}
+                alphaTest={0.01}
+            />
         </points>
     );
 }
 
-// ─── FactorTrigger ────────────────────────────────────────────────────────────
-function FactorTrigger({ pos, factorId, label, warn = false, color = '#ffffaa' }) {
-    const { reversedFactors, setActiveFactor } = useStore();
-    const isRev = !!reversedFactors[factorId];
-    const meshRef = useRef();
+function StarDome({ dimmed }) {
+    const tex = useMemo(() => starSprite(), []);
+    return (
+        <group>
+            <StarLayer count={2200} seed={0x57a25} size={1.1} minRadius={130} dimmed={dimmed} tex={tex} />
+            <StarLayer count={260} seed={0xb214e} size={3.4} minRadius={125} bright dimmed={dimmed} tex={tex} />
+        </group>
+    );
+}
 
-    useFrame((state) => {
-        if (!meshRef.current) return;
-        meshRef.current.rotation.y += 0.02;
-        meshRef.current.rotation.x += 0.01;
-        const s = 1.0 + Math.sin(state.clock.elapsedTime * 2 + pos[0]) * 0.1;
-        meshRef.current.scale.setScalar(s);
+/**
+ * Солнце и его свет. Направление считается единой функцией времени, тот же
+ * вектор уходит в шейдеры Земли, облаков и атмосферы — поэтому терминатор,
+ * блики на воде и тени зданий всегда согласованы.
+ */
+function SunSystem({ sunDir, nightMode, dimmed, onSelect }) {
+    const lightRef = useRef();
+    const sunRef = useRef();
+    const phase = useRef(0);
+    const targetPhase = nightMode ? Math.PI : 0;
+
+    useFrame((state, delta) => {
+        phase.current += (targetPhase - phase.current) * Math.min(1, delta * 1.1);
+        sunDirection(state.clock.elapsedTime + phase.current / 0.055, sunDir.current);
+
+        if (lightRef.current) {
+            lightRef.current.position.copy(sunDir.current).multiplyScalar(70);
+            lightRef.current.intensity = dimmed ? 0.35 : 2.6;
+        }
+        if (sunRef.current) {
+            sunRef.current.position.copy(sunDir.current).multiplyScalar(105);
+            const pulse = 1 + Math.sin(state.clock.elapsedTime * 1.5) * 0.02;
+            sunRef.current.scale.setScalar(dimmed ? pulse * 0.55 : pulse);
+        }
     });
 
-    const c = warn ? (isRev ? '#aaffaa' : '#ff3333') : (isRev ? '#88ccff' : color);
+    return (
+        <group>
+            <directionalLight ref={lightRef} color="#fff6e8" intensity={2.6} />
+            <group
+                ref={sunRef}
+                onClick={(e) => { e.stopPropagation(); onSelect('sunEnergy'); }}
+                onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
+                onPointerOut={() => { document.body.style.cursor = 'auto'; }}
+            >
+                <mesh>
+                    <sphereGeometry args={[3.4, 24, 16]} />
+                    <meshBasicMaterial color={dimmed ? '#c25a2a' : '#fff3c4'} />
+                </mesh>
+                <mesh>
+                    <sphereGeometry args={[5.6, 20, 14]} />
+                    <meshBasicMaterial
+                        color={dimmed ? '#8a2f10' : '#ffb64a'}
+                        transparent
+                        opacity={0.24}
+                        blending={THREE.AdditiveBlending}
+                        depthWrite={false}
+                    />
+                </mesh>
+                <mesh>
+                    <sphereGeometry args={[9.5, 16, 12]} />
+                    <meshBasicMaterial
+                        color={dimmed ? '#5c1c08' : '#ff8c2a'}
+                        transparent
+                        opacity={0.06}
+                        blending={THREE.AdditiveBlending}
+                        depthWrite={false}
+                    />
+                </mesh>
+            </group>
+        </group>
+    );
+}
+
+function MoonInSky({ darkened, onSelect }) {
+    const groupRef = useRef();
+    const meshRef = useRef();
+
+    useFrame((state, delta) => {
+        const t = state.clock.elapsedTime * 0.05 + 2.2;
+        if (groupRef.current) {
+            groupRef.current.position.set(
+                Math.cos(t) * 46,
+                Math.sin(t * 0.6) * 12 + 6,
+                Math.sin(t) * 46,
+            );
+        }
+        if (meshRef.current) meshRef.current.rotation.y += delta * 0.02;
+    });
 
     return (
         <group
-            position={pos}
+            ref={groupRef}
+            onClick={(e) => { e.stopPropagation(); onSelect('moonPhase'); }}
+            onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
+            onPointerOut={() => { document.body.style.cursor = 'auto'; }}
+        >
+            <mesh ref={meshRef}>
+                <sphereGeometry args={[2.2, 32, 24]} />
+                <meshStandardMaterial
+                    color={darkened ? '#2a2d33' : '#cfd2d6'}
+                    roughness={0.95}
+                    metalness={0}
+                />
+            </mesh>
+            {!darkened && (
+                <mesh>
+                    <sphereGeometry args={[3.0, 16, 12]} />
+                    <meshBasicMaterial
+                        color="#dce8ff"
+                        transparent
+                        opacity={0.09}
+                        blending={THREE.AdditiveBlending}
+                        depthWrite={false}
+                    />
+                </mesh>
+            )}
+            <pointLight intensity={darkened ? 0 : 0.35} distance={90} color="#bcd4ff" />
+        </group>
+    );
+}
+
+// ─── Полярное сияние ─────────────────────────────────────────────────────────
+
+function AuroraCurtain({ pole, faded }) {
+    const materialRef = useRef();
+
+    const uniforms = useMemo(() => ({
+        uColorLow: { value: new THREE.Color('#38ffb0') },
+        uColorHigh: { value: new THREE.Color('#7b5cff') },
+        uTime: { value: 0 },
+        uIntensity: { value: 0.5 },
+        uWave: { value: 0.5 },
+    }), []);
+
+    useFrame((state, delta) => {
+        const u = materialRef.current?.uniforms;
+        if (!u) return;
+        u.uTime.value = state.clock.elapsedTime;
+        const target = faded ? 0.05 : 0.55;
+        u.uIntensity.value += (target - u.uIntensity.value) * Math.min(1, delta * 1.5);
+    });
+
+    const y = pole === 'north' ? R * 0.9 : -R * 0.9;
+
+    return (
+        <mesh position={[0, y, 0]} rotation={[pole === 'north' ? 0 : Math.PI, 0, 0]}>
+            <cylinderGeometry args={[R * 0.4, R * 0.47, 2.2, 72, 1, true]} />
+            <shaderMaterial
+                ref={materialRef}
+                vertexShader={auroraVertex}
+                fragmentShader={auroraFragment}
+                uniforms={uniforms}
+                transparent
+                depthWrite={false}
+                side={THREE.DoubleSide}
+                blending={THREE.AdditiveBlending}
+            />
+        </mesh>
+    );
+}
+
+// ─── Локальные явления цивилизации ───────────────────────────────────────────
+
+/** Вспышки конфликтов в реальных горячих точках. */
+function WarFlashes({ radius, atPeace }) {
+    const pointsRef = useRef();
+    const HOTSPOTS = useMemo(() => [
+        { lat: 33.3, lon: 44.4 }, { lat: 34.8, lon: 38.9 }, { lat: 48.4, lon: 37.8 },
+        { lat: 15.3, lon: 44.2 }, { lat: 12.6, lon: 30.2 }, { lat: 34.5, lon: 69.2 },
+    ], []);
+
+    const positions = useMemo(() => {
+        const rand = seededRandom(0xc0ffee);
+        const arr = new Float32Array(HOTSPOTS.length * 4 * 3);
+        let i = 0;
+        HOTSPOTS.forEach((spot) => {
+            for (let k = 0; k < 4; k += 1) {
+                const v = latLonToVec3(
+                    spot.lat + (rand() - 0.5) * 3,
+                    spot.lon + (rand() - 0.5) * 3,
+                    radius + 0.12 + rand() * 0.25,
+                );
+                arr[i * 3] = v.x;
+                arr[i * 3 + 1] = v.y;
+                arr[i * 3 + 2] = v.z;
+                i += 1;
+            }
+        });
+        return arr;
+    }, [HOTSPOTS, radius]);
+
+    const tex = useMemo(() => circleSprite(), []);
+
+    useFrame((state) => {
+        const mat = pointsRef.current?.material;
+        if (!mat) return;
+        const t = state.clock.elapsedTime;
+        mat.opacity = atPeace ? 0 : 0.55 + Math.sin(t * 6) * 0.35;
+        mat.size = atPeace ? 0.1 : 0.42 + Math.sin(t * 9) * 0.16;
+        mat.color.set(atPeace ? '#7dffb0' : '#ff5a1e');
+    });
+
+    return (
+        <points ref={pointsRef}>
+            <bufferGeometry>
+                <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+            </bufferGeometry>
+            <pointsMaterial
+                color="#ff5a1e"
+                size={0.42}
+                transparent
+                opacity={0.8}
+                sizeAttenuation
+                depthWrite={false}
+                blending={THREE.AdditiveBlending}
+                map={tex}
+                alphaMap={tex}
+                alphaTest={0.01}
+            />
+        </points>
+    );
+}
+
+/** Волновые кольца интерференции вокруг планеты. */
+function InterferenceRings({ isolated }) {
+    const groupRef = useRef();
+
+    useFrame((state, delta) => {
+        const group = groupRef.current;
+        if (!group) return;
+        const t = state.clock.elapsedTime;
+        group.children.forEach((ring, i) => {
+            if (isolated) {
+                ring.scale.setScalar(Math.max(0.15, ring.scale.x - delta * 0.35));
+                ring.material.opacity = Math.max(0, ring.material.opacity - delta * 0.25);
+            } else {
+                ring.scale.setScalar(1 + Math.sin(t * 1.4 + i * 1.3) * 0.06);
+                ring.material.opacity = 0.2 + Math.sin(t * 2 + i * 1.5) * 0.09;
+            }
+        });
+    });
+
+    return (
+        <group ref={groupRef}>
+            {[R + 1.6, R + 2.7, R + 3.9].map((rad, i) => (
+                <mesh key={rad} rotation={[Math.PI / 2, 0, i * 0.2]}>
+                    <torusGeometry args={[rad, 0.05, 6, 96]} />
+                    <meshBasicMaterial
+                        color="#ff8cf0"
+                        transparent
+                        opacity={0.22}
+                        side={THREE.DoubleSide}
+                        blending={THREE.AdditiveBlending}
+                        depthWrite={false}
+                    />
+                </mesh>
+            ))}
+        </group>
+    );
+}
+
+// ─── Интерактивные факторы ───────────────────────────────────────────────────
+
+function FactorTrigger({ position, factorId, label, color = '#ffffaa', warn = false }) {
+    const reversed = useStore((s) => !!s.reversedFactors[factorId]);
+    const setActiveFactor = useStore((s) => s.setActiveFactor);
+    const meshRef = useRef();
+
+    useFrame((state, delta) => {
+        const mesh = meshRef.current;
+        if (!mesh) return;
+        mesh.rotation.y += delta * 0.9;
+        mesh.rotation.x += delta * 0.45;
+        mesh.scale.setScalar(1 + Math.sin(state.clock.elapsedTime * 2 + position[0]) * 0.09);
+    });
+
+    const tone = warn ? (reversed ? '#9dffb4' : '#ff4433') : (reversed ? '#7fd4ff' : color);
+    const [primary, secondary] = label.split(' / ');
+
+    return (
+        <group
+            position={position}
             onClick={(e) => { e.stopPropagation(); setActiveFactor(factorId); }}
             onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
             onPointerOut={() => { document.body.style.cursor = 'auto'; }}
         >
             <mesh ref={meshRef}>
-                <octahedronGeometry args={[0.7, 0]} />
-                <meshBasicMaterial color={c} wireframe />
+                <octahedronGeometry args={[0.5, 0]} />
+                <meshBasicMaterial color={tone} wireframe />
             </mesh>
-            <Text
-                font="/Roboto-Regular.ttf"
-                position={[0, -1.3, 0]}
-                fontSize={0.42}
-                color="white"
-                outlineColor="black"
-                outlineWidth={0.06}
-                anchorX="center"
-            >
-                {isRev
-                    ? label.split(' / ')[1] || label
-                    : label.split(' / ')[0] || label}
-            </Text>
+            <mesh>
+                <sphereGeometry args={[0.95, 10, 8]} />
+                <meshBasicMaterial color={tone} transparent opacity={0.06} depthWrite={false} />
+            </mesh>
+            {/* Billboard: планета вращается вместе с факторами, без него подписи
+                на дальнем полушарии читались бы зеркально */}
+            <Billboard position={[0, -0.95, 0]}>
+                <Text
+                    font="/Roboto-Regular.ttf"
+                    fontSize={0.33}
+                    color={tone}
+                    anchorX="center"
+                    anchorY="top"
+                    outlineColor="black"
+                    outlineWidth={0.055}
+                >
+                    {reversed ? (secondary || primary) : primary}
+                </Text>
+            </Billboard>
         </group>
     );
 }
 
-function SurfaceMarker({ pos, label, color, size = 0.52, marker = 'sphere' }) {
-    const ref = useRef();
-    useFrame((state) => {
-        if (!ref.current) return;
-        ref.current.scale.setScalar(1 + Math.sin(state.clock.elapsedTime * 2 + pos[0]) * 0.08);
-    });
+// lift подобран так, чтобы маркеры в центре видимого диска не подлетали
+// вплотную к камере: чем ближе точка к центру полушария, тем меньше подъём.
+const NATURE_FACTORS = [
+    { id: 'ocean', label: 'ОКЕАН / ЗАСУХА', color: '#4ab5ff', lat: 12, lon: -145, lift: 1.9 },
+    { id: 'waves', label: 'ВОЛНЫ / ШТИЛЬ', color: '#8ce0ff', lat: -26, lon: -112, lift: 1.7 },
+    { id: 'tectonics', label: 'ТЕКТОНИКА / ЗЕМЛЕТРЯСЕНИЯ', color: '#d99a4a', lat: -20, lon: -68, lift: 2.4 },
+    { id: 'photosynthesis', label: 'ФОТОСИНТЕЗ / УВЯДАНИЕ', color: '#4ecb4e', lat: -4, lon: -62, lift: 1.6 },
+    { id: 'wildlife', label: 'БИОСФЕРА / ВЫМИРАНИЕ', color: '#d8a05a', lat: 44, lon: -101, lift: 1.7 },
+    { id: 'migration', label: 'МИГРАЦИЯ / РАССЕИВАНИЕ', color: '#a9dcff', lat: 62, lon: -118, lift: 2.4 },
+    { id: 'atmosphere', label: 'АТМОСФЕРА / ОПУСТЫНИВАНИЕ', color: '#dcdcff', lat: 22, lon: -46, lift: 2.8 },
+    { id: 'aurora', label: 'ПОЛЯРНОЕ СИЯНИЕ / ЗАТУХАНИЕ', color: '#3fffcc', lat: 74, lon: -70, lift: 2.4 },
+    { id: 'glaciers', label: 'ЛЕДНИКИ / ТАЯНИЕ', color: '#dff2ff', lat: -66, lon: -80, lift: 2.0 },
+    { id: 'dayNight', label: 'ДЕНЬ / НОЧЬ', color: '#ffdd88', lat: 36, lon: -78, lift: 3.2 },
+    { id: 'interference', label: 'ИНТЕРФЕРЕНЦИЯ / ИЗОЛЯЦИЯ', color: '#ff8cf0', lat: -44, lon: -38, lift: 2.4 },
+    { id: 'starField', label: 'ЗВЁЗДНОЕ НЕБО / ТУМАН', color: '#ffffff', lat: 8, lon: -20, lift: 4.2 },
+];
 
-    return (
-        <group position={pos} quaternion={surfaceQuaternion(pos)}>
-            <mesh ref={ref} position={[0, 0.28, 0]}>
-                {marker === 'cone' && <coneGeometry args={[0.28, 0.75, 7]} />}
-                {marker === 'box' && <boxGeometry args={[0.45, 0.55, 0.45]} />}
-                {marker === 'ring' && <torusGeometry args={[0.36, 0.045, 8, 28]} />}
-                {marker === 'sphere' && <sphereGeometry args={[0.25, 14, 14]} />}
-                <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.22} roughness={0.6} />
-            </mesh>
-            <Text
-                font="/Roboto-Regular.ttf"
-                position={[0, 0.95, 0]}
-                fontSize={size}
-                color={color}
-                anchorX="center"
-                anchorY="bottom"
-                outlineColor="black"
-                outlineWidth={0.06}
-            >
-                {label}
-            </Text>
-        </group>
-    );
-}
+const CIVILISATION_FACTORS = [
+    { id: 'war', label: 'ВОЙНА / МИР', warn: true, lat: 33, lon: 44, lift: 1.9 },
+    { id: 'progress', label: 'ПРОГРЕСС / СТАГНАЦИЯ', color: '#8cd0ff', lat: 35.7, lon: 139.7, lift: 2.1 },
+    { id: 'skyline', label: 'НЕБОСКРЁБЫ / РУИНЫ', color: '#cfe4ff', lat: 25.2, lon: 55.3, lift: 1.7 },
+    { id: 'ecology', label: 'ИНДУСТРИЯ / ЭКОБАЛАНС', color: '#8dffab', lat: 31, lon: 114, lift: 2.3 },
+    { id: 'urbanization', label: 'УРБАНИЗАЦИЯ / УПАДОК', color: '#aeaecf', lat: 28.6, lon: 77.2, lift: 1.5 },
+    { id: 'trade', label: 'ТОРГОВЛЯ / ИЗОЛЯЦИЯ', color: '#ffcf55', lat: 4, lon: 80, lift: 2.2 },
+    { id: 'culture', label: 'КУЛЬТУРА / ВАРВАРСТВО', color: '#ffaaff', lat: 41.9, lon: 12.5, lift: 2.1 },
+    { id: 'energy', label: 'ЭНЕРГИЯ / ИСТОЩЕНИЕ', color: '#ff9147', lat: 24, lon: 52, lift: 2.8 },
+    { id: 'language', label: 'ЯЗЫК / ШУМ', color: '#ffffff', lat: 52.5, lon: 13.4, lift: 1.9 },
+    { id: 'law', label: 'ПРАВО / ПРОИЗВОЛ', color: '#9ad7ff', lat: 52, lon: 4.3, lift: 2.7 },
+    { id: 'education', label: 'ОБРАЗОВАНИЕ / НЕВЕЖЕСТВО', color: '#ffe38a', lat: 55.8, lon: 37.6, lift: 2.2 },
+    { id: 'medicine', label: 'МЕДИЦИНА / ЭПИДЕМИЯ', color: '#7dffb0', lat: 46.2, lon: 6.1, lift: 3.4 },
+    { id: 'sunEnergy', label: 'СОЛНЦЕ / УГАСАНИЕ', color: '#ffaa00', lat: -20, lon: 120, lift: 3.0 },
+];
 
-function PlanetLandmarks({ stage, reversedFactors }) {
-    const roadPoints = useMemo(() => [
-        new THREE.Vector3(...sph(R + 0.22, HALF * 0.95, Math.PI - 0.8)),
-        new THREE.Vector3(...sph(R + 0.22, HALF * 0.85, Math.PI - 0.35)),
-        new THREE.Vector3(...sph(R + 0.22, HALF * 1.05, Math.PI + 0.2)),
-        new THREE.Vector3(...sph(R + 0.22, HALF * 0.92, Math.PI + 0.75)),
-    ], []);
-
-    if (stage === 2) {
-        return (
-            <group>
-                <SurfaceMarker pos={sph(R + 0.45, HALF, -0.45)} label="ОКЕАН" color={reversedFactors.ocean ? '#8a7350' : '#5fc7ff'} marker="ring" />
-                <SurfaceMarker pos={sph(R + 0.5, HALF * 0.72, 0.62)} label="ГОРЫ" color={reversedFactors.tectonics ? '#ff7a55' : '#d6d6e8'} marker="cone" />
-                <SurfaceMarker pos={sph(R + 0.48, HALF * 1.26, -0.72)} label="ЛЕСА" color={reversedFactors.photosynthesis ? '#9b7540' : '#62ff75'} marker="cone" />
-                <SurfaceMarker pos={sph(R + 0.52, HALF * 1.45, 0.95)} label="СТАИ" color={reversedFactors.migration ? '#8899aa' : '#e9f7ff'} marker="sphere" size={0.45} />
-                <SurfaceMarker pos={sph(R + 0.5, HALF * 0.48, -1.18)} label="СИЯНИЕ" color={reversedFactors.aurora ? '#669988' : '#55ffd5'} marker="ring" size={0.42} />
-            </group>
-        );
-    }
-
+function FactorField({ factors }) {
     return (
         <group>
-            <Line points={roadPoints} color={reversedFactors.trade ? '#665544' : '#ffdd88'} lineWidth={2} transparent opacity={0.75} />
-            <SurfaceMarker pos={sph(R + 0.55, HALF, Math.PI)} label="ГОРОД" color={reversedFactors.urbanization ? '#777777' : '#c8ddff'} marker="box" />
-            <SurfaceMarker pos={sph(R + 0.55, HALF * 0.65, Math.PI + 0.72)} label="ЗАВОД" color={reversedFactors.ecology ? '#88ffaa' : '#ff8844'} marker="box" size={0.46} />
-            <SurfaceMarker pos={sph(R + 0.55, HALF * 1.35, Math.PI - 0.72)} label="КУЛЬТУРА" color={reversedFactors.culture ? '#9a7777' : '#ffb6f0'} marker="sphere" size={0.42} />
-            <SurfaceMarker pos={sph(R + 0.55, HALF * 1.18, Math.PI + 1.42)} label="ЭНЕРГИЯ" color={reversedFactors.energy ? '#777777' : '#ffaa55'} marker="ring" size={0.42} />
-            <SurfaceMarker pos={sph(R + 0.55, HALF * 0.85, Math.PI - 1.25)} label="ЯЗЫК" color={reversedFactors.language ? '#888888' : '#ffffff'} marker="sphere" size={0.34} />
-            <SurfaceMarker pos={sph(R + 0.55, HALF * 1.08, Math.PI - 1.95)} label="ПРАВО" color={reversedFactors.law ? '#b36a6a' : '#9ad7ff'} marker="box" size={0.34} />
-            <SurfaceMarker pos={sph(R + 0.55, HALF * 1.52, Math.PI + 1.68)} label="ШКОЛА" color={reversedFactors.education ? '#9a7d55' : '#ffe38a'} marker="box" size={0.34} />
-            <SurfaceMarker pos={sph(R + 0.55, HALF * 0.52, Math.PI + 1.95)} label="МЕД." color={reversedFactors.medicine ? '#aa5555' : '#7dffb0'} marker="sphere" size={0.34} />
+            {factors.map((factor) => (
+                <FactorTrigger
+                    key={factor.id}
+                    factorId={factor.id}
+                    label={factor.label}
+                    color={factor.color}
+                    warn={factor.warn}
+                    position={latLonToArray(factor.lat, factor.lon, R + factor.lift)}
+                />
+            ))}
         </group>
     );
 }
 
-// ─── Главный компонент ────────────────────────────────────────────────────────
-export default function Planet() {
-    const { stage, reversedFactors } = useStore();
-    const planetGroup = useRef();
-    const { mountains, trees, animals, birdOffsets, stars, buildings } = usePlanetData();
-    const earthTexture = useEarthTexture();
+// ─── Главная сцена ───────────────────────────────────────────────────────────
 
-    // Поворот планеты: stage 2 = природная сторона (вперёд), stage 3 = цивилизация
+export default function Planet() {
+    const stage = useStore((s) => s.stage);
+    const reversedFactors = useStore((s) => s.reversedFactors);
+    const setActiveFactor = useStore((s) => s.setActiveFactor);
+
+    const planetGroup = useRef();
+    const sunDir = useRef(new THREE.Vector3(1, 0.32, 0).normalize());
+
+    const isNature = stage === 2;
+
+    // Разворот планеты: природа — западное полушарие (Америки), цивилизация —
+    // восточное (Азия и Европа). При rotation.y = 0 к камере обращена Америка
+    // (проверено по скриншотам: Нью-Йорк в центре кадра), при π — Азия.
+    const firstSpin = useRef(true);
     useEffect(() => {
         if (!planetGroup.current) return;
-        gsap.to(planetGroup.current.rotation, {
-            y: stage === 2 ? 0 : Math.PI,
+        const targetY = isNature ? 0 : Math.PI;
+
+        // На первом монтировании ставим сразу, без облёта половины планеты
+        if (firstSpin.current) {
+            firstSpin.current = false;
+            planetGroup.current.rotation.y = targetY;
+            return undefined;
+        }
+
+        const tween = gsap.to(planetGroup.current.rotation, {
+            y: targetY,
             duration: 2.2,
             ease: 'power2.inOut',
         });
-    }, [stage]);
+        return () => tween.kill();
+    }, [isNature]);
 
-    const rf = reversedFactors;
+    const globeTuning = useMemo(() => ({
+        drought: reversedFactors.ocean ? 1 : 0,
+        desert: reversedFactors.atmosphere ? 1 : 0,
+        waveStrength: reversedFactors.waves ? 0.004 : 0.055,
+        waveAmp: reversedFactors.waves ? 0.001 : 0.014,
+        nightGlow: reversedFactors.urbanization ? 0.35 : 1.7,
+        foam: reversedFactors.waves ? 0.15 : 1,
+    }), [reversedFactors]);
+
+    const cloudOpacity = reversedFactors.atmosphere ? 0.22 : 0.85;
+    const smoggy = isNature ? false : !reversedFactors.ecology;
 
     return (
         <group>
-            <ambientLight intensity={0.8} />
+            <ambientLight intensity={0.32} />
 
-            {/* Небо: звёзды, солнце, луна */}
-            <SkySystem stars={stars} reversedFactors={rf} />
+            <group position={PLANET_OFFSET}>
+                <StarDome dimmed={!!reversedFactors.starField} />
+                <SunSystem
+                    sunDir={sunDir}
+                    nightMode={!!reversedFactors.dayNight}
+                    dimmed={!!reversedFactors.sunEnergy}
+                    onSelect={setActiveFactor}
+                />
+                <MoonInSky darkened={!!reversedFactors.moonPhase} onSelect={setActiveFactor} />
 
-            {/* Планета: смещена вниз для эффекта горизонта-полусферы на весь экран */}
-            <group ref={planetGroup} position={[0, -7, 0]}>
-
-                {/* ── Базовая сфера (Океаны и материки) ── */}
-                <mesh>
-                    <sphereGeometry args={[R, 64, 64]} />
-                    <meshStandardMaterial map={earthTexture} roughness={0.6} metalness={0.1} />
-                </mesh>
-
-                {/* ── ПРИРОДНАЯ СТОРОНА (stage 2) ── */}
-
-                {/* Океан */}
-                <Ocean reversed={!!rf['ocean']} />
-
-                {/* Атмосфера / Облака */}
-                <Atmosphere reversed={!!rf['atmosphere']} />
-
-                {/* Горы / Тектоника */}
-                <MountainsInstanced mountains={mountains} reversed={!!rf['tectonics']} />
-
-                {/* Растительность */}
-                <TreesInstanced trees={trees} reversed={!!rf['photosynthesis']} />
-
-                {/* Животные */}
-                <AnimalsInstanced animals={animals} reversed={!!rf['wildlife']} />
-
-                {/* Стая птиц */}
-                <BirdFlockInstanced birdOffsets={birdOffsets} reversed={!!rf['migration']} />
-
-                {/* Полярные сияния */}
-                <Aurora reversed={!!rf['aurora']} />
-
-                {/* ── ЦИВИЛИЗАЦИОННАЯ СТОРОНА (stage 3) ── */}
-
-                <CivBuildingsInstanced buildings={buildings} reversed={!!rf['progress']} />
-
-                {/* Смог */}
-                <Smog reversed={!!rf['ecology']} />
-
-                {/* Война — частицы */}
-                <WarParticles reversed={!!rf['war']} />
-
-                {/* Интерференция — волновые кольца */}
-                <InterferenceRings reversed={!!rf['interference']} />
-
-                <PlanetLandmarks stage={stage} reversedFactors={rf} />
-
-                {/* ── ФАКТОРЫ STAGE 2 ── */}
-                {stage === 2 && (
-                    <>
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF, 0)}
-                            factorId="ocean"
-                            label="ОКЕАН / ЗАСУХА"
-                            color="#44aaff"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 0.6, 0.7)}
-                            factorId="tectonics"
-                            label="ТЕКТОНИКА / ЗЕМЛЕТРЯСЕНИЯ"
-                            color="#cc9944"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 1.4, -0.7)}
-                            factorId="photosynthesis"
-                            label="ФОТОСИНТЕЗ / УВЯДАНИЕ"
-                            color="#44cc44"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 0.5, -0.9)}
-                            factorId="wildlife"
-                            label="БИОСФЕРА / ВЫМИРАНИЕ"
-                            color="#cc8844"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 1.5, 0.9)}
-                            factorId="migration"
-                            label="МИГРАЦИЯ / РАССЕИВАНИЕ"
-                            color="#aaddff"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 0.8, 1.3)}
-                            factorId="atmosphere"
-                            label="АТМОСФЕРА / ОПУСТЫНИВАНИЕ"
-                            color="#ddddff"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 1.2, -1.3)}
-                            factorId="aurora"
-                            label="ПОЛЯРНОЕ СИЯНИЕ / ЗАТУХАНИЕ"
-                            color="#00ffcc"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 0.3, 0.2)}
-                            factorId="dayNight"
-                            label="ДЕНЬ / НОЧЬ"
-                            color="#ffdd88"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 1.7, 0.3)}
-                            factorId="sunEnergy"
-                            label="СОЛНЦЕ / УГАСАНИЕ"
-                            color="#ffaa00"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 1.0, 1.8)}
-                            factorId="moonPhase"
-                            label="ЛУНА / ТЬМА"
-                            color="#aabbdd"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 0.7, -1.7)}
-                            factorId="starField"
-                            label="ЗВЁЗДНОЕ НЕБО / ТУМАН"
-                            color="#ffffff"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 1.6, -1.8)}
-                            factorId="interference"
-                            label="ИНТЕРФЕРЕНЦИЯ / ИЗОЛЯЦИЯ"
-                            color="#ff88ff"
-                        />
-                    </>
-                )}
-
-                {/* ── ФАКТОРЫ STAGE 3 ── */}
-                {stage === 3 && (
-                    <>
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF, Math.PI)}
-                            factorId="war"
-                            label="ВОЙНА / МИР"
-                            warn
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 0.6, Math.PI + 0.7)}
-                            factorId="progress"
-                            label="ПРОГРЕСС / СТАГНАЦИЯ"
-                            color="#88ccff"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 1.4, Math.PI - 0.7)}
-                            factorId="ecology"
-                            label="ЭКОЛОГИЯ / СМОГ"
-                            color="#88ffaa"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 0.5, Math.PI - 0.9)}
-                            factorId="urbanization"
-                            label="УРБАНИЗАЦИЯ / УПАДОК"
-                            color="#aaaacc"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 1.5, Math.PI + 0.9)}
-                            factorId="trade"
-                            label="ТОРГОВЛЯ / ИЗОЛЯЦИЯ"
-                            color="#ffcc44"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 0.8, Math.PI + 1.5)}
-                            factorId="culture"
-                            label="КУЛЬТУРА / ВАРВАРСТВО"
-                            color="#ffaaff"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 1.2, Math.PI - 1.5)}
-                            factorId="energy"
-                            label="ЭНЕРГИЯ / ИСТОЩЕНИЕ"
-                            color="#ff8844"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 0.9, Math.PI - 2.0)}
-                            factorId="language"
-                            label="ЯЗЫК / ШУМ"
-                            color="#ffffff"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 1.35, Math.PI - 2.25)}
-                            factorId="law"
-                            label="ПРАВО / ПРОИЗВОЛ"
-                            color="#9ad7ff"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 1.62, Math.PI + 1.85)}
-                            factorId="education"
-                            label="ОБРАЗОВАНИЕ / НЕВЕЖЕСТВО"
-                            color="#ffe38a"
-                        />
-                        <FactorTrigger
-                            pos={sph(R + 2.5, HALF * 0.38, Math.PI + 1.95)}
-                            factorId="medicine"
-                            label="МЕДИЦИНА / ЭПИДЕМИЯ"
-                            color="#7dffb0"
-                        />
-                    </>
-                )}
-
-            </group>
-        </group>
-    );
-}
-
-// ─── Компонент: Интерференция ────────────────────────────────────────────────
-function InterferenceRings({ reversed }) {
-    const refs = [useRef(), useRef(), useRef()];
-    useFrame((state, delta) => {
-        refs.forEach((r, i) => {
-            if (!r.current) return;
-            const t = state.clock.elapsedTime;
-            if (reversed) {
-                r.current.scale.setScalar(Math.max(0.1, r.current.scale.x - delta * 0.3));
-                r.current.material.opacity = Math.max(0, r.current.material.opacity - delta * 0.2);
-            } else {
-                const pulse = 1.0 + Math.sin(t * 1.5 + i * 1.2) * 0.08;
-                r.current.scale.setScalar(pulse);
-                r.current.material.opacity = 0.25 + Math.sin(t * 2 + i * 1.5) * 0.1;
-            }
-        });
-    });
-    const radii = [R + 1.5, R + 2.5, R + 3.5];
-    return (
-        <group>
-            {radii.map((rad, i) => (
-                <mesh key={i} ref={refs[i]} rotation={[Math.PI / 2, 0, 0]}>
-                    <torusGeometry args={[rad, 0.08, 8, 80]} />
-                    <meshBasicMaterial
-                        color="#ff88ff"
-                        transparent opacity={0.3}
-                        side={THREE.DoubleSide}
-                        blending={THREE.AdditiveBlending}
+                <group ref={planetGroup}>
+                    <EarthGlobe
+                        radius={R}
+                        segments={128}
+                        sunDir={sunDir}
+                        cloudOpacity={cloudOpacity}
+                        atmosphereIntensity={reversedFactors.atmosphere ? 0.45 : 1.0}
+                        tuning={globeTuning}
                     />
-                </mesh>
-            ))}
+
+                    <NatureLayer
+                        radius={R}
+                        reversedFactors={reversedFactors}
+                        setActiveFactor={setActiveFactor}
+                        active={isNature}
+                    />
+
+                    <CityLayer
+                        radius={R}
+                        reversedFactors={reversedFactors}
+                        setActiveFactor={setActiveFactor}
+                        active={!isNature}
+                    />
+
+                    {isNature && (
+                        <>
+                            <AuroraCurtain pole="north" faded={!!reversedFactors.aurora} />
+                            <AuroraCurtain pole="south" faded={!!reversedFactors.aurora} />
+                            <InterferenceRings isolated={!!reversedFactors.interference} />
+                        </>
+                    )}
+
+                    {!isNature && (
+                        <>
+                            <WarFlashes radius={R} atPeace={!!reversedFactors.war} />
+                            {smoggy && (
+                                <PlanetAtmosphere
+                                    radius={R}
+                                    sunDir={sunDir}
+                                    color="#7c7a4e"
+                                    sunsetColor="#8a6a3a"
+                                    intensity={1.3}
+                                    power={1.5}
+                                    scale={1.09}
+                                />
+                            )}
+                        </>
+                    )}
+
+                    <FactorField factors={isNature ? NATURE_FACTORS : CIVILISATION_FACTORS} />
+                </group>
+            </group>
         </group>
     );
 }
