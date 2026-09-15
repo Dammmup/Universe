@@ -35,6 +35,7 @@ void main() {
     vec3 col = mix(uColor, uRim, fres);
     float alpha = mix(uAlpha, 0.95, fres) * uGain;
     gl_FragColor = vec4(col, alpha);
+    #include <colorspace_fragment>
 }
 `;
 
@@ -79,5 +80,6 @@ void main() {
     col += uEmissive * uGlow;
     col += vec3(1.0) * fres * 0.22;
     gl_FragColor = vec4(col, uAlpha);
+    #include <colorspace_fragment>
 }
 `;

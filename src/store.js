@@ -10,7 +10,38 @@ import { create } from 'zustand';
 
 const MAX_STAGE = 5;
 
-export const useStore = create((set) => ({
+/**
+ * Какой вуалью накрыт переход между слоями. Смена сцены — это подмена всего
+ * содержимого кадра: без накрытия она читается как склейка. Пары 2↔3 здесь нет
+ * намеренно — там сцена одна и та же, планета доворачивается в кадре.
+ */
+const VEIL_KIND = {
+    '0>1': 'bang',    // ударная волна взрыва выбеливает кадр
+    '1>0': 'collapse',
+    '1>2': 'dive',    // вход в атмосферу
+    '2>1': 'ascend',
+    '3>4': 'matter',  // проваливание в вещество
+    '4>3': 'ascend',
+    '4>5': 'flesh',   // из клетки в тело: тьма переходит в свет
+    '5>4': 'collapse',
+};
+
+export const veilKindFor = (from, to) => VEIL_KIND[`${from}>${to}`] ?? 'dive';
+
+let shiftSeq = 0;
+
+const enterStage = (stage, state) => ({
+    stage,
+    isExploded: stage > 0 || state.isExploded,
+    hasPlayedBang: state.hasPlayedBang || stage > 0,
+    activeFactorId: null,
+    bodyRegion: null,
+    approachingEarth: false,
+    // На Земле сначала киношный кадр, облёт включается, когда камера доехала
+    freeLook: stage !== 2 && stage !== 3,
+});
+
+export const useStore = create((set, get) => ({
     stage: 0,
     isExploded: false, // Флаг для анимации большого взрыва
     hasPlayedBang: false,
@@ -32,50 +63,127 @@ export const useStore = create((set) => ({
     isFactorReversed: (id) => Boolean(useStore.getState().reversedFactors[id]),
     clearFactor: () => set({ activeFactorId: null }),
 
-    approachingEarth: false,
+    // Выбранная область тела на антропо-уровне. null — фигура целиком в кадре,
+    // видны только названия областей; с выбором камера подъезжает к области и
+    // раскрывает её факторы.
+    bodyRegion: null,
+    setBodyRegion: (id) => set((state) => (
+        state.bodyRegion === id ? state : { bodyRegion: id, activeFactorId: null }
+    )),
 
-    setStage: (stage) => set({
-        stage,
-        isExploded: stage > 0,
-        activeFactorId: null,
-        approachingEarth: false,
+    approachingEarth: false,
+    // false, пока режиссёрская камера ведёт кадр: иначе OrbitControls
+    // перехватывает мышь и сбивает наезд.
+    freeLook: true,
+
+    // ─── Переход между слоями ────────────────────────────────────────────────
+    // shift живёт от начала заливки кадра до её полного схода. Смена stage
+    // происходит ровно в середине, под непрозрачной вуалью.
+    shift: null,
+    setFreeLook: (freeLook) => set({ freeLook }),
+
+    /**
+     * Запускает накрытие кадра. commit описывает, что сделать в середине:
+     * перейти на стадию или завершить пролёт к Земле.
+     */
+    beginShift: (kind, commit) => set((state) => {
+        if (state.shift) return state;
+        shiftSeq += 1;
+        return { shift: { kind, commit, token: shiftSeq }, activeFactorId: null };
     }),
-    nextStage: () => set((state) => {
-        if (state.stage >= MAX_STAGE) return state;
-        const goingToEarth = state.stage === 1;
-        return {
-            stage: state.stage + 1,
-            isExploded: true,
-            hasPlayedBang: true,
-            activeFactorId: null,
-            approachingEarth: goingToEarth,
-        };
+
+    /** Середина перехода: кадр залит, можно менять содержимое сцены. */
+    commitShift: () => set((state) => {
+        const commit = state.shift?.commit;
+        if (!commit) return state;
+        if (commit.type === 'earthArrive') return { approachingEarth: false };
+        return enterStage(commit.to, state);
     }),
-    prevStage: () => set((state) => {
-        const nextSt = Math.max(state.stage - 1, 0);
-        return {
-            stage: nextSt,
-            isExploded: nextSt > 0,
-            activeFactorId: null,
-            approachingEarth: false,
-        };
-    }),
+
+    endShift: () => set({ shift: null }),
+
+    setStage: (stage) => set((state) => ({ ...enterStage(stage, state), shift: null })),
+
+    nextStage: () => {
+        const state = get();
+        if (state.shift || state.stage >= MAX_STAGE || state.approachingEarth) return;
+        const from = state.stage;
+        const to = from + 1;
+
+        // Космос → Земля: сначала живой пролёт сквозь систему, вуаль включится
+        // в конце наезда, когда планета уже заполнила кадр.
+        if (from === 1) {
+            set({
+                stage: 2,
+                isExploded: true,
+                hasPlayedBang: true,
+                activeFactorId: null,
+                approachingEarth: true,
+                freeLook: false,
+            });
+            return;
+        }
+
+        // Природа → город: сцена та же, планета сама доворачивается к Азии
+        if (from === 2) {
+            set((s) => ({ ...enterStage(3, s) }));
+            return;
+        }
+
+        get().beginShift(veilKindFor(from, to), { type: 'stage', to });
+    },
+
+    prevStage: () => {
+        const state = get();
+        if (state.shift) return;
+        const from = state.stage;
+        if (from <= 0) return;
+        const to = from - 1;
+
+        if (state.approachingEarth) {
+            set((s) => ({ ...enterStage(1, s) }));
+            return;
+        }
+
+        if (from === 3) {
+            set((s) => ({ ...enterStage(2, s) }));
+            return;
+        }
+
+        get().beginShift(veilKindFor(from, to), { type: 'stage', to });
+    },
+
     triggerBang: () => set((state) => {
         if (state.hasPlayedBang) {
-            return { stage: 1, isExploded: true, activeFactorId: null };
+            if (state.shift) return state;
+            shiftSeq += 1;
+            return {
+                shift: { kind: 'bang', commit: { type: 'stage', to: 1 }, token: shiftSeq },
+                activeFactorId: null,
+            };
         }
 
         return { isExploded: true, hasPlayedBang: true, activeFactorId: null };
     }),
+
     resetJourney: () => set({
         stage: 0,
         isExploded: false,
         hasPlayedBang: false,
         activeFactorId: null,
+        bodyRegion: null,
         reversedFactors: {},
         approachingEarth: false,
+        freeLook: true,
+        shift: null,
     }),
-    finishEarthApproach: () => set({ approachingEarth: false }),
+
+    /** Конец пролёта к Земле: подменяем космос на планету под вспышкой атмосферы. */
+    finishEarthApproach: () => {
+        const state = get();
+        if (!state.approachingEarth || state.shift) return;
+        get().beginShift('dive', { type: 'earthArrive' });
+    },
 
     // Дополнительные данные, если понадобятся для камеры
     cameraTarget: [0, 0, 0],

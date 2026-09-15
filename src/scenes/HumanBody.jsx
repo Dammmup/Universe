@@ -1,23 +1,40 @@
-import React, { useLayoutEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Billboard, Text, useGLTF } from '@react-three/drei';
+import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore } from '../store';
-import { tissueFragment, tissueVertex } from '../lib/shaders/life';
+import { BODY_REGIONS } from '../data/body';
+import { buildFigure, disposeFigure } from '../lib/anatomy';
+import { fresnelFragment, fresnelVertex, tissueFragment, tissueVertex } from '../lib/shaders/life';
+import FactorMarker from './effects/FactorMarker';
 
 const _dummy = new THREE.Object3D();
 
-function Label({ position, children, color = '#ffffff', size = 0.22 }) {
+/**
+ * Подпись органа. Слой светлый, поэтому текст тёмный с белой обводкой:
+ * прежняя белая надпись в чёрном канте читалась как врезка из другого макета.
+ *
+ * В общем плане названия органов молчат: там кадр принадлежит областям тела, и
+ * четыре анатомических подписи поверх шести названий областей — каша. Органы
+ * подписываются, когда область выбрана и камера уже стоит рядом.
+ */
+function Label({ position, children, region, size = 0.16 }) {
+    const bodyRegion = useStore((s) => s.bodyRegion);
+    if (bodyRegion !== region) return null;
+
     return (
         <Billboard position={position}>
             <Text
                 font="/Roboto-Regular.ttf"
                 fontSize={size}
-                color={color}
+                letterSpacing={0.12}
+                color="#243043"
+                fillOpacity={0.85}
                 anchorX="center"
                 anchorY="middle"
-                outlineColor="#1a1020"
-                outlineWidth={0.03}
+                outlineColor="#ffffff"
+                outlineWidth={0.014}
+                outlineOpacity={0.85}
             >
                 {children}
             </Text>
@@ -26,36 +43,19 @@ function Label({ position, children, color = '#ffffff', size = 0.22 }) {
 }
 
 function FactorOrb({ position, factorId, label, reverseLabel, color, reverseColor, size = 0.9 }) {
-    const reversed = useStore((s) => !!s.reversedFactors[factorId]);
-    const setActiveFactor = useStore((s) => s.setActiveFactor);
-    const ref = useRef();
-    const tone = reversed ? reverseColor : color;
-
-    useFrame((state, delta) => {
-        if (!ref.current) return;
-        ref.current.scale.setScalar(1 + Math.sin(state.clock.elapsedTime * 2.4 + position[0]) * 0.05);
-        ref.current.rotation.y += delta * 0.5;
-    });
-
     return (
-        <group
+        <FactorMarker
             position={position}
-            onClick={(e) => { e.stopPropagation(); setActiveFactor(factorId); }}
-            onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-            onPointerOut={() => { document.body.style.cursor = 'auto'; }}
-        >
-            <mesh>
-                <sphereGeometry args={[0.38 * size, 14, 12]} />
-                <meshBasicMaterial color={tone} transparent opacity={0.07} depthWrite={false} />
-            </mesh>
-            <mesh ref={ref}>
-                <icosahedronGeometry args={[0.16 * size, 0]} />
-                <meshStandardMaterial color={tone} emissive={tone} emissiveIntensity={0.7} roughness={0.4} />
-            </mesh>
-            <Label position={[0, -0.42 * size, 0]} color={tone} size={0.16}>
-                {reversed ? reverseLabel : label}
-            </Label>
-        </group>
+            factorId={factorId}
+            label={label}
+            reverseLabel={reverseLabel}
+            color={color}
+            reverseColor={reverseColor}
+            scale={0.62 * size}
+            labelOffset={-0.85}
+            hitRadius={0.48 * size}
+            theme="light"
+        />
     );
 }
 
@@ -186,9 +186,6 @@ function Heart({ reversed }) {
                     roughness={0.4}
                 />
             </mesh>
-            <Label position={[0.15, 1.55, 0.7]} color={reversed ? '#996666' : '#ff9aa6'} size={0.2}>
-                СЕРДЦЕ
-            </Label>
         </group>
     );
 }
@@ -261,9 +258,6 @@ function Lungs({ reversed }) {
                 <tubeGeometry args={[rightBronchus, 10, 0.028, 6, false]} />
                 <meshStandardMaterial color="#c5e8f6" transparent opacity={0.65} />
             </mesh>
-            <Label position={[0, 0.42, 0.7]} color={reversed ? '#8aa0aa' : '#bcecff'} size={0.2}>
-                ЛЁГКИЕ
-            </Label>
         </group>
     );
 }
@@ -307,9 +301,6 @@ function Brain({ reversed }) {
                 <cylinderGeometry args={[0.07, 0.1, 0.45, 10]} />
                 <meshStandardMaterial color={reversed ? '#665577' : '#dd99ff'} roughness={0.5} />
             </mesh>
-            <Label position={[0, 0.62, 0.35]} color={reversed ? '#bd9abc' : '#ffb7ec'} size={0.2}>
-                МОЗГ
-            </Label>
         </group>
     );
 }
@@ -358,9 +349,6 @@ function DigestiveSystem({ reversed }) {
                     roughness={0.7}
                 />
             </mesh>
-            <Label position={[0, -1.55, 0.55]} color={reversed ? '#928460' : '#f2ca65'} size={0.2}>
-                ПИЩЕВАРЕНИЕ
-            </Label>
         </group>
     );
 }
@@ -505,9 +493,9 @@ function EmotionalAura({ reversed }) {
 
 function HumanBackdrop({ mode }) {
     return (
-        <group position={[0, 0.2, -1.35]}>
-            <mesh>
-                <ringGeometry args={[3.55, 4.35, 72]} />
+        <group position={[0, 0.1, -1.8]}>
+            <mesh raycast={() => null}>
+                <ringGeometry args={[4.6, 5.5, 72]} />
                 <meshBasicMaterial
                     color={mode === 'emotions' ? '#ff8fd2' : '#75cfff'}
                     transparent
@@ -519,76 +507,240 @@ function HumanBackdrop({ mode }) {
     );
 }
 
-function HumanSilhouette({ reversedFactors, mode }) {
+/**
+ * Фигура человека.
+ *
+ * Модель `/model.gltf` заменена на процедурную анатомию (`lib/anatomy.js`):
+ * прежний манекен с прямоугольным торсом и палками вместо рук не спасал
+ * никакой материал — силуэт задаётся геометрией, а не шейдером.
+ *
+ * Тело не перехватывает лучи: клики должны доходить до зон наведения областей,
+ * которые лежат внутри оболочки.
+ */
+function AnatomyFigure({ reversedFactors, mode }) {
     const stressReversed = !!reversedFactors.stress;
-    const modelGroupRef = useRef();
-    const { scene } = useGLTF('/model.gltf');
-
-    const modelScene = useMemo(() => {
-        const cloned = scene.clone(true);
-        const prepareMaterial = (material) => {
-            const nextMaterial = material.clone();
-            const skin = mode === 'emotions'
-                ? (stressReversed ? '#c45a78' : '#e08ab0')
-                : (stressReversed ? '#c2744c' : '#c99578');
-            nextMaterial.color = new THREE.Color(skin);
-            nextMaterial.transparent = true;
-            nextMaterial.opacity = mode === 'emotions' ? 0.58 : 0.5;
-            nextMaterial.depthWrite = false;
-            nextMaterial.side = THREE.FrontSide;
-            if ('emissive' in nextMaterial) {
-                nextMaterial.emissive = new THREE.Color(mode === 'emotions' ? '#3a1028' : '#3a2010');
-                nextMaterial.emissiveIntensity = 0.18;
-            }
-            if ('roughness' in nextMaterial) nextMaterial.roughness = 0.62;
-            if ('metalness' in nextMaterial) nextMaterial.metalness = 0.04;
-            return nextMaterial;
-        };
-
-        cloned.traverse((object) => {
-            if (!object.isMesh) return;
-            object.castShadow = false;
-            object.receiveShadow = false;
-            if (object.material) {
-                object.material = Array.isArray(object.material)
-                    ? object.material.map(prepareMaterial)
-                    : prepareMaterial(object.material);
-            }
-        });
-        return cloned;
-    }, [scene, stressReversed, mode]);
-
-    useLayoutEffect(() => {
-        if (!modelGroupRef.current) return;
-        modelGroupRef.current.position.set(0, 0, 0);
-        modelGroupRef.current.scale.set(1, 1, 1);
-
-        const box = new THREE.Box3().setFromObject(modelGroupRef.current);
-        const size = new THREE.Vector3();
-        const center = new THREE.Vector3();
-        box.getSize(size);
-        box.getCenter(center);
-
-        const maxDim = Math.max(size.x, size.y, size.z);
-        if (!Number.isFinite(maxDim) || maxDim === 0) return;
-
-        modelGroupRef.current.position.sub(center);
-        modelGroupRef.current.scale.setScalar(5.65 / maxDim);
-    }, [modelScene]);
-
     const breathRef = useRef();
+    const figure = useMemo(() => buildFigure(), []);
+
+    useEffect(() => () => disposeFigure(figure), [figure]);
+
+    const skinMaterial = useMemo(() => new THREE.MeshStandardMaterial({
+        color: new THREE.Color(mode === 'emotions'
+            ? (stressReversed ? '#d98aa6' : '#f0b6cd')
+            : (stressReversed ? '#d9a186' : '#e8c3ab')),
+        emissive: new THREE.Color(mode === 'emotions' ? '#5a2038' : '#553220'),
+        emissiveIntensity: 0.1,
+        roughness: 0.34,
+        metalness: 0,
+        transparent: true,
+        opacity: mode === 'emotions' ? 0.42 : 0.36,
+        depthWrite: false,
+        side: THREE.FrontSide,
+    }), [mode, stressReversed]);
+
+    // Контурная оболочка: полупрозрачное тело на светлом фоне теряет силуэт,
+    // френель по краю возвращает объём, не закрывая органы внутри
+    const rimMaterial = useMemo(() => new THREE.ShaderMaterial({
+        vertexShader: fresnelVertex,
+        fragmentShader: fresnelFragment,
+        uniforms: {
+            uColor: { value: new THREE.Color(mode === 'emotions' ? '#f3d3e2' : '#eadcd0') },
+            uRim: { value: new THREE.Color(mode === 'emotions' ? '#8c4a6b' : '#55657c') },
+            uPower: { value: 2.4 },
+            uAlpha: { value: 0.03 },
+            uGain: { value: 1 },
+        },
+        transparent: true,
+        depthWrite: false,
+        side: THREE.BackSide,
+    }), [mode]);
+
+    useEffect(() => () => {
+        skinMaterial.dispose();
+        rimMaterial.dispose();
+    }, [skinMaterial, rimMaterial]);
+
     useFrame((state) => {
         if (!breathRef.current) return;
-        const b = 1 + Math.sin(state.clock.elapsedTime * 1.35) * 0.012;
-        breathRef.current.scale.set(1, b, 1);
+        const b = 1 + Math.sin(state.clock.elapsedTime * 1.25) * 0.008;
+        breathRef.current.scale.set(1 + (b - 1) * 0.6, b, 1 + (b - 1) * 0.6);
     });
 
+    const parts = Object.entries(figure);
+
     return (
-        <group position={[0, 0.15, -0.18]} ref={breathRef}>
+        <group ref={breathRef}>
             <HumanBackdrop mode={mode} />
-            <group ref={modelGroupRef}>
-                <primitive object={modelScene} />
-            </group>
+            {parts.map(([key, geometry]) => (
+                <group key={key}>
+                    <mesh geometry={geometry} material={skinMaterial} raycast={() => null} />
+                    <mesh geometry={geometry} material={rimMaterial} scale={1.012} raycast={() => null} />
+                </group>
+            ))}
+        </group>
+    );
+}
+
+/**
+ * Области тела: невидимые зоны наведения внутри оболочки. По самой поверхности
+ * тела грудь от живота не отличить — это одна непрерывная оболочка, поэтому
+ * прицел даёт отдельная геометрия.
+ *
+ * Пока область не выбрана, в кадре только названия областей. Выбор области
+ * подводит камеру и раскрывает её факторы — иначе два десятка подписей висели
+ * бы поверх фигуры одновременно.
+ */
+function BodyRegions() {
+    const bodyRegion = useStore((s) => s.bodyRegion);
+    const setBodyRegion = useStore((s) => s.setBodyRegion);
+    const [hovered, setHovered] = useState(null);
+
+    return (
+        <group>
+            {BODY_REGIONS.map((region) => {
+                const active = bodyRegion === region.id;
+                const isHovered = hovered === region.id;
+                const muted = bodyRegion && !active;
+
+                return (
+                    <group key={region.id}>
+                        {region.hotspots.map((spot, index) => (
+                            <mesh
+                                key={index}
+                                position={spot.pos}
+                                rotation={[0, 0, spot.tilt ?? 0]}
+                                onPointerOver={(e) => {
+                                    e.stopPropagation();
+                                    setHovered(region.id);
+                                    document.body.style.cursor = 'pointer';
+                                }}
+                                onPointerOut={() => {
+                                    setHovered((current) => (current === region.id ? null : current));
+                                    document.body.style.cursor = 'auto';
+                                }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setBodyRegion(active ? null : region.id);
+                                }}
+                            >
+                                {spot.shape === 'sphere'
+                                    ? <sphereGeometry args={[spot.radius, 20, 16]} />
+                                    : <capsuleGeometry args={[spot.radius, spot.height, 6, 18]} />}
+                                <meshBasicMaterial
+                                    color={active ? '#2ec5d6' : '#5b7fa6'}
+                                    transparent
+                                    opacity={active ? 0.16 : (isHovered ? 0.12 : 0)}
+                                    depthWrite={false}
+                                />
+                            </mesh>
+                        ))}
+
+                        {!bodyRegion && (
+                            <Billboard position={region.labelAt}>
+                                <Text
+                                    font="/Roboto-Regular.ttf"
+                                    fontSize={0.26}
+                                    letterSpacing={0.16}
+                                    color={isHovered ? '#0f766e' : '#3d4a5c'}
+                                    fillOpacity={isHovered ? 1 : 0.78}
+                                    anchorX="center"
+                                    anchorY="middle"
+                                    outlineColor="#ffffff"
+                                    outlineWidth={0.012}
+                                    outlineOpacity={0.9}
+                                    raycast={() => null}
+                                >
+                                    {region.title.toUpperCase()}
+                                </Text>
+                            </Billboard>
+                        )}
+
+                        {active && region.factors.map((factor) => (
+                            <FactorMarker
+                                key={factor.id}
+                                position={factor.pos}
+                                factorId={factor.id}
+                                label={factor.label}
+                                reverseLabel={factor.reverse}
+                                color={factor.color}
+                                reverseColor="#8b93a3"
+                                scale={0.42}
+                                labelOffset={-0.62}
+                                hitRadius={0.4}
+                                theme="light"
+                            />
+                        ))}
+
+                        {muted && null}
+                    </group>
+                );
+            })}
+        </group>
+    );
+}
+
+/**
+ * Органы авторились под прежнюю модель ростом ≈ 6 единиц (стопы на -3.15) и
+ * пересчитываются под новую фигуру двумя разными преобразованиями.
+ *
+ * Сосуды тянутся от шеи до стоп, поэтому их растягивают по росту. Отдельные
+ * органы по той же шкале раздувались до размера туловища: у них своя, меньшая
+ * шкала и свой сдвиг — чтобы мозг попал в череп, а не повис над макушкой.
+ */
+const VESSEL_FIT = { scale: 1.23, offsetY: 0.22 };
+const ORGAN_FIT = { scale: 0.97, offsetY: 1.13 };
+
+/**
+ * Позвоночник. Единственный орган, построенный сразу в координатах фигуры:
+ * область «Позвоночник» была, а столба в теле не было — камера заходила со
+ * спины и показывала пустую оболочку.
+ */
+function Spine({ reversed }) {
+    const curve = useMemo(() => makeCurve([
+        [0, 0.05, -0.10],
+        [0, 0.55, -0.20],
+        [0, 1.05, -0.26],   // поясничный лордоз
+        [0, 1.60, -0.30],
+        [0, 2.10, -0.28],   // грудной кифоз
+        [0, 2.50, -0.20],
+        [0, 2.86, -0.10],   // шейный отдел
+    ]), []);
+
+    const vertebrae = useMemo(() => {
+        const items = [];
+        const up = new THREE.Vector3(0, 1, 0);
+        for (let i = 0; i < 20; i += 1) {
+            const u = i / 19;
+            const point = curve.getPointAt(u);
+            const tangent = curve.getTangentAt(u);
+            const quat = new THREE.Quaternion().setFromUnitVectors(up, tangent);
+            // Позвонки крупнее в пояснице и мельче к шее — там меньше нагрузка
+            const radius = 0.115 - u * 0.045;
+            items.push({ pos: point.toArray(), quat: [quat.x, quat.y, quat.z, quat.w], radius });
+        }
+        return items;
+    }, [curve]);
+
+    const tone = reversed ? '#8a8f98' : '#dcd3c4';
+
+    return (
+        <group>
+            <mesh raycast={() => null}>
+                <tubeGeometry args={[curve, 48, 0.045, 8, false]} />
+                <meshStandardMaterial
+                    color={reversed ? '#6c727c' : '#c9bfae'}
+                    roughness={0.6}
+                    metalness={0}
+                    transparent
+                    opacity={0.9}
+                />
+            </mesh>
+            {vertebrae.map((item, index) => (
+                <mesh key={index} position={item.pos} quaternion={item.quat} raycast={() => null}>
+                    <cylinderGeometry args={[item.radius, item.radius, 0.055, 14]} />
+                    <meshStandardMaterial color={tone} roughness={0.55} metalness={0} />
+                </mesh>
+            ))}
         </group>
     );
 }
@@ -601,19 +753,35 @@ function OrganLayer({ reversedFactors }) {
 
     return (
         <group>
-            <Circulation reversed={circulationReversed} />
-            <Heart reversed={circulationReversed} />
-            <Lungs reversed={breathingReversed} />
-            <Brain reversed={cognitionReversed} />
-            <DigestiveSystem reversed={digestionReversed} />
+            <Spine reversed={!!reversedFactors.posture} />
+            <group scale={VESSEL_FIT.scale} position={[0, VESSEL_FIT.offsetY, 0]}>
+                <Circulation reversed={circulationReversed} />
+            </group>
+            <group scale={ORGAN_FIT.scale} position={[0, ORGAN_FIT.offsetY, 0]}>
+                {/* Доводка по органам: общий пересчёт ставит их в правильную
+                    треть тела, но каждый был нарисован «крупным планом» и
+                    внутри грудной клетки выглядел больше самой клетки */}
+                <group position={[0, 0.2, 0]} scale={0.84}>
+                    <Heart reversed={circulationReversed} />
+                </group>
+                <group position={[0, 0.03, 0]} scale={0.8}>
+                    <Lungs reversed={breathingReversed} />
+                </group>
+                <group position={[0, 0.42, 0]} scale={0.86}>
+                    <Brain reversed={cognitionReversed} />
+                </group>
+                <group position={[0, 0.5, 0]} scale={0.9}>
+                    <DigestiveSystem reversed={digestionReversed} />
+                </group>
+            </group>
 
-            <FactorOrb position={[1.55, 1.05, 1.05]} factorId="circulation" label="КРОВЬ" reverseLabel="ИШЕМИЯ" color="#ff344d" reverseColor="#7f3444" />
-            <FactorOrb position={[-1.55, 1.05, 1.05]} factorId="breathing" label="ДЫХАНИЕ" reverseLabel="ГИПОКСИЯ" color="#8fe6ff" reverseColor="#66808d" />
-            <FactorOrb position={[0, 2.95, 1.05]} factorId="memory" label="МОЗГ" reverseLabel="АМНЕЗИЯ" color="#ff9ee8" reverseColor="#8b6f95" />
-            <FactorOrb position={[1.55, -1.15, 0.95]} factorId="immunity" label="ИММУНИТЕТ" reverseLabel="АУТОИММУННОСТЬ" color="#b8ff66" reverseColor="#ff77aa" />
-            <FactorOrb position={[-1.55, -1.15, 0.95]} factorId="digestion" label="ОБМЕН" reverseLabel="ТОКСИЧНОСТЬ" color="#f2c86d" reverseColor="#8b6e3d" />
-            <FactorOrb position={[-0.75, -2.75, 0.9]} factorId="movement" label="ДВИЖЕНИЕ" reverseLabel="ПАРАЛИЧ" color="#334155" reverseColor="#777777" />
-            <FactorOrb position={[0.75, -2.75, 0.9]} factorId="thermoregulation" label="ТЕПЛО" reverseLabel="СБОЙ ТЕМП." color="#ffb866" reverseColor="#73c8ff" />
+            {/* Подписи органов вынесены из самих органов: каждый орган ещё и
+                масштабируется под фигуру, и подпись внутри него уезжала вместе
+                с ним — «ЛЁГКИЕ» оказывались над кишечником */}
+            <Label position={[0, 3.62, 0.5]} region="head">МОЗГ</Label>
+            <Label position={[0.62, 2.28, 0.5]} region="chest">СЕРДЦЕ</Label>
+            <Label position={[-0.72, 2.12, 0.5]} region="chest">ЛЁГКИЕ</Label>
+            <Label position={[0, 0.5, 0.62]} region="abdomen">ПИЩЕВАРЕНИЕ</Label>
         </group>
     );
 }
@@ -622,15 +790,15 @@ function EmotionLayer({ reversedFactors }) {
     const emotionsReversed = !!reversedFactors.emotion;
 
     return (
-        <group>
+        <group scale={ORGAN_FIT.scale} position={[0, ORGAN_FIT.offsetY, 0]}>
             <EmotionalAura reversed={emotionsReversed} />
-            <FactorOrb position={[1.85, 1.85, 1.05]} factorId="emotion" label="ЭМОЦИЯ" reverseLabel="ОНЕМЕНИЕ" color="#ffcc55" reverseColor="#8a8a8a" />
-            <FactorOrb position={[-1.85, 1.85, 1.05]} factorId="stress" label="СТРЕСС" reverseLabel="ВОССТАНОВЛЕНИЕ" color="#ff5544" reverseColor="#66ffbb" />
-            <FactorOrb position={[1.9, 0.25, 1.05]} factorId="empathy" label="ЭМПАТИЯ" reverseLabel="ОТЧУЖДЕНИЕ" color="#ff8fd2" reverseColor="#6680aa" />
-            <FactorOrb position={[-1.9, 0.25, 1.05]} factorId="pain" label="БОЛЬ" reverseLabel="АНЕСТЕЗИЯ" color="#ff6b35" reverseColor="#7890aa" />
-            <FactorOrb position={[1.85, -1.2, 1.05]} factorId="hormones" label="ГОРМОНЫ" reverseLabel="СБОЙ" color="#d6ff66" reverseColor="#aa7766" />
-            <FactorOrb position={[-1.85, -1.2, 1.05]} factorId="sleep" label="СОН" reverseLabel="БЕССОННИЦА" color="#8aa8ff" reverseColor="#ffad66" />
-            <FactorOrb position={[0, 3.15, 1.1]} factorId="identity" label="Я" reverseLabel="РАЗРЫВ Я" color="#ffffff" reverseColor="#a8a8c8" size={1} />
+            <FactorOrb position={[1.85, 1.85, 1.05]} factorId="emotion" label="ЭМОЦИЯ" reverseLabel="ОНЕМЕНИЕ" color="#d59a10" reverseColor="#8a8a8a" />
+            <FactorOrb position={[-1.85, 1.85, 1.05]} factorId="stress" label="СТРЕСС" reverseLabel="ВОССТАНОВЛЕНИЕ" color="#d92d1c" reverseColor="#149c6c" />
+            <FactorOrb position={[1.9, 0.25, 1.05]} factorId="empathy" label="ЭМПАТИЯ" reverseLabel="ОТЧУЖДЕНИЕ" color="#d9539f" reverseColor="#6680aa" />
+            <FactorOrb position={[-1.9, 0.25, 1.05]} factorId="pain" label="БОЛЬ" reverseLabel="АНЕСТЕЗИЯ" color="#d94f16" reverseColor="#7890aa" />
+            <FactorOrb position={[1.85, -1.2, 1.05]} factorId="hormones" label="ГОРМОНЫ" reverseLabel="СБОЙ" color="#8a9c1e" reverseColor="#aa7766" />
+            <FactorOrb position={[-1.85, -1.2, 1.05]} factorId="sleep" label="СОН" reverseLabel="БЕССОННИЦА" color="#4a63c9" reverseColor="#d1831a" />
+            <FactorOrb position={[0, 3.15, 1.1]} factorId="identity" label="Я" reverseLabel="РАЗРЫВ Я" color="#3a4256" reverseColor="#8a8aa8" size={1} />
         </group>
     );
 }
@@ -639,27 +807,34 @@ export default function HumanBody({ mode = 'organs' }) {
     const reversedFactors = useStore((s) => s.reversedFactors);
     const groupRef = useRef();
 
-    useFrame((state, delta) => {
+    // Фигура больше не вращается сама: по областям надо прицеливаться, а
+    // уезжающая из-под курсора мишень делает это пыткой. Остаётся лёгкое
+    // покачивание — тело живое, но стоит на месте.
+    useFrame((state) => {
         if (!groupRef.current) return;
-        groupRef.current.rotation.y += delta * 0.028;
-        groupRef.current.position.y = Math.sin(state.clock.elapsedTime * 0.55) * 0.04;
+        groupRef.current.position.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.03;
     });
 
     return (
-        <group ref={groupRef} position={[0, -0.2, 0]}>
+        <group ref={groupRef}>
             <ambientLight intensity={0.55} />
             <hemisphereLight
                 args={[mode === 'emotions' ? '#ffd7f4' : '#dff7ff', '#120818', 0.7]}
             />
-            <spotLight position={[2.5, 6, 5]} angle={0.55} penumbra={0.6} intensity={2.2} color="#ffe8d4" />
-            <pointLight position={[-3.5, 1.5, 3]} intensity={1.4} color={mode === 'emotions' ? '#ff80d8' : '#7fcfff'} />
-            <pointLight position={[0.15, 0.95, 1.2]} intensity={mode === 'organs' ? 1.1 : 0.4} color="#ff6a7a" distance={4} />
-            <pointLight position={[0, 2.2, 1]} intensity={0.7} color="#ffb7ec" distance={3.5} />
+            <spotLight position={[3, 8, 6.5]} angle={0.55} penumbra={0.6} intensity={2.2} color="#ffe8d4" />
+            <pointLight position={[-4.5, 2, 4]} intensity={1.4} color={mode === 'emotions' ? '#ff80d8' : '#7fcfff'} />
+            <pointLight position={[0.2, 1.9, 1.6]} intensity={mode === 'organs' ? 1.2 : 0.4} color="#ff6a7a" distance={5} />
+            <pointLight position={[0, 3.3, 1.4]} intensity={0.7} color="#ffb7ec" distance={4.5} />
 
-            <HumanSilhouette reversedFactors={reversedFactors} mode={mode} />
-            {mode === 'organs' ? <OrganLayer reversedFactors={reversedFactors} /> : <EmotionLayer reversedFactors={reversedFactors} />}
+            <AnatomyFigure reversedFactors={reversedFactors} mode={mode} />
+            {mode === 'organs' ? (
+                <>
+                    <OrganLayer reversedFactors={reversedFactors} />
+                    <BodyRegions />
+                </>
+            ) : (
+                <EmotionLayer reversedFactors={reversedFactors} />
+            )}
         </group>
     );
 }
-
-useGLTF.preload('/model.gltf');

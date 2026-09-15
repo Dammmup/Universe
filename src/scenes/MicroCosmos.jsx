@@ -4,7 +4,8 @@ import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore } from '../store';
 import { circleSprite } from '../lib/sprites';
-import { fresnelFragment, fresnelVertex, tissueFragment, tissueVertex } from '../lib/shaders/life';
+import { fresnelFragment, fresnelVertex } from '../lib/shaders/life';
+import FactorMarker from './effects/FactorMarker';
 
 const _dummy = new THREE.Object3D();
 
@@ -27,42 +28,18 @@ function Label({ position, children, color = '#e8fbff', size = 0.22 }) {
 }
 
 function FactorOrb({ position, factorId, label, reverseLabel, color, reverseColor }) {
-    const reversed = useStore((s) => !!s.reversedFactors[factorId]);
-    const setActiveFactor = useStore((s) => s.setActiveFactor);
-    const core = useRef();
-    const tone = reversed ? reverseColor : color;
-
-    useFrame((state, delta) => {
-        if (!core.current) return;
-        const pulse = 1 + Math.sin(state.clock.elapsedTime * 2.6 + position[0]) * (reversed ? 0.03 : 0.1);
-        core.current.scale.setScalar(pulse);
-        core.current.rotation.y += delta * 0.7;
-    });
-
     return (
-        <group
+        <FactorMarker
             position={position}
-            onClick={(e) => { e.stopPropagation(); setActiveFactor(factorId); }}
-            onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-            onPointerOut={() => { document.body.style.cursor = 'auto'; }}
-        >
-            <mesh>
-                <sphereGeometry args={[0.42, 16, 12]} />
-                <meshBasicMaterial color={tone} transparent opacity={0.09} depthWrite={false} />
-            </mesh>
-            <mesh ref={core}>
-                <icosahedronGeometry args={[0.16, 0]} />
-                <meshStandardMaterial
-                    color={tone}
-                    emissive={tone}
-                    emissiveIntensity={reversed ? 0.25 : 0.85}
-                    roughness={0.35}
-                />
-            </mesh>
-            <Label position={[0, -0.48, 0]} color={tone} size={0.16}>
-                {reversed ? reverseLabel : label}
-            </Label>
-        </group>
+            factorId={factorId}
+            label={label}
+            reverseLabel={reverseLabel}
+            color={color}
+            reverseColor={reverseColor}
+            scale={0.55}
+            labelOffset={-0.95}
+            hitRadius={0.5}
+        />
     );
 }
 
@@ -164,16 +141,20 @@ function CellMembrane({ reversed }) {
     const group = useRef();
     const pores = useMemo(() => {
         const items = [];
+        const up = new THREE.Vector3(0, 0, 1);
+        const normal = new THREE.Vector3();
         for (let i = 0; i < 22; i += 1) {
             const phi = Math.acos(1 - (2 * (i + 0.5)) / 22);
             const theta = Math.PI * (1 + Math.sqrt(5)) * i;
-            items.push({
-                x: Math.sin(phi) * Math.cos(theta) * 4.55,
-                y: Math.sin(phi) * Math.sin(theta) * 3.45,
-                z: Math.cos(phi) * 3.15,
-                phi,
-                theta,
-            });
+            const x = Math.sin(phi) * Math.cos(theta) * 4.55;
+            const y = Math.sin(phi) * Math.sin(theta) * 3.45;
+            const z = Math.cos(phi) * 3.15;
+            // Пора лежит в плоскости мембраны. Проп lookAt здесь не работал:
+            // R3F присваивал массив одноимённому методу объекта, и кольца
+            // торчали из оболочки под случайными углами.
+            normal.set(x, y, z).normalize();
+            const quat = new THREE.Quaternion().setFromUnitVectors(up, normal);
+            items.push({ x, y, z, quat: [quat.x, quat.y, quat.z, quat.w] });
         }
         return items;
     }, []);
@@ -186,13 +167,15 @@ function CellMembrane({ reversed }) {
 
     return (
         <group ref={group}>
+            {/* Оболочка светится мягко: со свечением в кадре прежние значения
+                собирали ровный неоновый круг, и клетка читалась плоским диском */}
             <FresnelShell
                 args={[4.7, 64, 40]}
                 color={reversed ? '#243038' : '#0b3d48'}
-                rim={reversed ? '#6d8894' : '#7cf4ff'}
+                rim={reversed ? '#5a727c' : '#4fc4d6'}
                 power={2.2}
-                alpha={reversed ? 0.08 : 0.16}
-                gain={reversed ? 0.55 : 1}
+                alpha={reversed ? 0.05 : 0.09}
+                gain={reversed ? 0.45 : 0.7}
                 side={THREE.BackSide}
             />
             <mesh>
@@ -208,27 +191,28 @@ function CellMembrane({ reversed }) {
             <FresnelShell
                 args={[4.62, 64, 40]}
                 color={reversed ? '#1c2a30' : '#123a44'}
-                rim={reversed ? '#8aa0aa' : '#c8fff8'}
-                power={3.1}
-                alpha={reversed ? 0.06 : 0.14}
+                rim={reversed ? '#6f838c' : '#8fd8e4'}
+                power={3.6}
+                alpha={reversed ? 0.04 : 0.08}
+                gain={0.8}
             />
             {pores.map((p, i) => (
                 <mesh
                     key={i}
                     position={[p.x, p.y, p.z]}
-                    lookAt={[0, 0, 0]}
+                    quaternion={p.quat}
                 >
                     <torusGeometry args={[reversed ? 0.22 : 0.13, 0.028, 8, 18]} />
                     <meshBasicMaterial
                         color={reversed ? '#8a9aa3' : '#b8fff4'}
                         transparent
-                        opacity={0.7}
+                        opacity={0.45}
+                        depthWrite={false}
                     />
                 </mesh>
             ))}
-            <Label position={[0, -4.05, 0]} color={reversed ? '#8ba0aa' : '#9befff'} size={0.24}>
-                {reversed ? 'ПРОТЕЧКА МЕМБРАНЫ' : 'КЛЕТОЧНАЯ МЕМБРАНА'}
-            </Label>
+            {/* Подпись оболочки даёт метка фактора «МЕМБРАНА» чуть ниже:
+                два названия одного и того же рядом только спорили друг с другом */}
         </group>
     );
 }
@@ -572,15 +556,14 @@ function MyelinAxon({ reversed }) {
                     </mesh>
                 );
             })}
-            <Label position={[0, 3.15, -0.3]} color={reversed ? '#8c9299' : '#dff7ff'} size={0.18}>
-                {reversed ? 'ДЕМИЕЛИНИЗАЦИЯ' : 'МИЕЛИН'}
-            </Label>
+            {/* Подпись даёт метка фактора «МИЕЛИН» — второй такой же текст
+                рядом читался как сбой рендера */}
         </group>
     );
 }
 
 const FACTORS = [
-    { id: 'cellMembrane', label: 'МЕМБРАНА', reverse: 'ПРОТЕЧКА', color: '#62e9ff', reverseColor: '#647885', pos: [0, -3.55, 1.4] },
+    { id: 'cellMembrane', label: 'МЕМБРАНА', reverse: 'ПРОТЕЧКА', color: '#62e9ff', reverseColor: '#647885', pos: [0, -3.15, 1.4] },
     { id: 'dnaRepair', label: 'РЕМОНТ ДНК', reverse: 'ОШИБКИ', color: '#7dff91', reverseColor: '#8a6a72', pos: [-1.85, 1.85, 1.55] },
     { id: 'mutation', label: 'МУТАЦИЯ', reverse: 'СТАГНАЦИЯ', color: '#ff9346', reverseColor: '#6b6b6b', pos: [-2.6, -2.15, 1.35] },
     { id: 'synapse', label: 'СИНАПС', reverse: 'РАЗРЫВ', color: '#ffe76d', reverseColor: '#777777', pos: [-1.15, -2.55, 1.2] },

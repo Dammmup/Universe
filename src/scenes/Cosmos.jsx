@@ -262,13 +262,15 @@ function SunCorona({ dimmed }) {
 
     useFrame((state) => {
         const t = state.clock.elapsedTime;
+        // Лучи держим на пределе видимости: яркими они читались схемой
+        // «солнце из учебника», а не структурой короны
         if (innerRef.current) {
             innerRef.current.rotation.z = t * 0.12;
-            innerRef.current.material.opacity = (dimmed ? 0.08 : 0.3) + Math.sin(t * 2.1) * 0.08;
+            innerRef.current.material.opacity = (dimmed ? 0.03 : 0.1) + Math.sin(t * 2.1) * 0.03;
         }
         if (outerRef.current) {
             outerRef.current.rotation.z = -t * 0.07;
-            outerRef.current.material.opacity = (dimmed ? 0.03 : 0.15) + Math.sin(t * 1.4 + 1) * 0.05;
+            outerRef.current.material.opacity = (dimmed ? 0.015 : 0.06) + Math.sin(t * 1.4 + 1) * 0.02;
         }
     });
 
@@ -280,13 +282,13 @@ function SunCorona({ dimmed }) {
                 <bufferGeometry>
                     <bufferAttribute attach="attributes-position" args={[rays1, 3]} />
                 </bufferGeometry>
-                <lineBasicMaterial color={rayColor} transparent opacity={0.45} depthWrite={false} blending={THREE.AdditiveBlending} />
+                <lineBasicMaterial color={rayColor} transparent opacity={0.14} depthWrite={false} blending={THREE.AdditiveBlending} />
             </lineSegments>
             <lineSegments ref={outerRef}>
                 <bufferGeometry>
                     <bufferAttribute attach="attributes-position" args={[rays2, 3]} />
                 </bufferGeometry>
-                <lineBasicMaterial color={rayColor} transparent opacity={0.22} depthWrite={false} blending={THREE.AdditiveBlending} />
+                <lineBasicMaterial color={rayColor} transparent opacity={0.08} depthWrite={false} blending={THREE.AdditiveBlending} />
             </lineSegments>
         </group>
     );
@@ -296,11 +298,13 @@ function Sun({ dimmed, onSelect }) {
     const glowRef = useRef();
     const surfaceRef = useRef();
     const tex = useMemo(() => sunTexture(), []);
+    const glowTex = useMemo(() => circleSprite(), []);
 
     useFrame((state) => {
         const t = state.clock.elapsedTime;
         if (glowRef.current) {
-            glowRef.current.scale.setScalar(1 + Math.sin(t * 1.3) * (dimmed ? 0.02 : 0.06));
+            const breath = 11 * (1 + Math.sin(t * 1.3) * (dimmed ? 0.02 : 0.06));
+            glowRef.current.scale.set(breath, breath, 1);
         }
         if (surfaceRef.current) {
             surfaceRef.current.rotation.y += 0.0008;
@@ -319,33 +323,49 @@ function Sun({ dimmed, onSelect }) {
                 <meshBasicMaterial map={tex} color={dimmed ? '#b04a12' : '#ffffff'} />
             </mesh>
 
-            <mesh ref={glowRef}>
-                <sphereGeometry args={[5.2, 32, 24]} />
-                <meshBasicMaterial
-                    color={dimmed ? '#661100' : '#ff9900'}
+            {/* Корона — спрайты с радиальным спадом, а не сферы. Сфера с
+                постоянным цветом даёт ровный диск с резкой границей: вокруг
+                звезды повисал плоский оранжевый круг вместо свечения. */}
+            <sprite ref={glowRef} scale={[11, 11, 1]}>
+                <spriteMaterial
+                    map={glowTex}
+                    color={dimmed ? '#8a2a05' : '#ffb03c'}
                     transparent
-                    opacity={0.18}
+                    opacity={dimmed ? 0.3 : 0.55}
                     depthWrite={false}
+                    toneMapped={false}
                     blending={THREE.AdditiveBlending}
                 />
-            </mesh>
-            <mesh>
-                <sphereGeometry args={[7.4, 24, 18]} />
-                <meshBasicMaterial
-                    color={dimmed ? '#330800' : '#ff5500'}
+            </sprite>
+            <sprite scale={[18, 18, 1]}>
+                <spriteMaterial
+                    map={glowTex}
+                    color={dimmed ? '#4a1200' : '#ff7a1e'}
                     transparent
-                    opacity={0.07}
+                    opacity={dimmed ? 0.06 : 0.16}
                     depthWrite={false}
+                    toneMapped={false}
                     blending={THREE.AdditiveBlending}
                 />
-            </mesh>
+            </sprite>
+            <sprite scale={[30, 30, 1]}>
+                <spriteMaterial
+                    map={glowTex}
+                    color={dimmed ? '#2a0a00' : '#ff5a10'}
+                    transparent
+                    opacity={dimmed ? 0.02 : 0.05}
+                    depthWrite={false}
+                    toneMapped={false}
+                    blending={THREE.AdditiveBlending}
+                />
+            </sprite>
 
             <SolarProminences dimmed={dimmed} />
             <SunCorona dimmed={dimmed} />
 
             <BillboardText
                 position={[0, 7.2, 0]}
-                fontSize={1.2}
+                fontSize={0.7}
                 color={dimmed ? '#dd6633' : '#ffcc00'}
                 anchorX="center"
                 anchorY="bottom"
@@ -448,7 +468,7 @@ function SolarWind({ shielded, onSelect }) {
             </points>
             <BillboardText
                 position={[0, -10.4, 0]}
-                fontSize={0.8}
+                fontSize={0.5}
                 color={shielded ? '#9bb0cc' : '#fff1a0'}
                 anchorX="center"
                 anchorY="top"
@@ -563,7 +583,7 @@ function OrbitingPlanet({
 
             <BillboardText
                 position={[0, radius + 0.85, 0]}
-                fontSize={Math.max(0.5, radius * 0.5)}
+                fontSize={Math.min(0.85, Math.max(0.32, radius * 0.3))}
                 color={labelColor}
                 anchorX="center"
                 anchorY="bottom"
@@ -573,7 +593,7 @@ function OrbitingPlanet({
             </BillboardText>
             <BillboardText
                 position={[0, radius + 0.35, 0]}
-                fontSize={Math.max(0.38, radius * 0.34)}
+                fontSize={Math.min(0.6, Math.max(0.24, radius * 0.2))}
                 color={reversed ? '#8fd0ff' : '#ffb066'}
                 anchorX="center"
                 anchorY="bottom"
@@ -752,7 +772,7 @@ function EarthSystem({ reversedFactors, onSelect }) {
 
             <BillboardText
                 position={[0, RADIUS + 1.5, 0]}
-                fontSize={0.75}
+                fontSize={0.46}
                 color="#ffffff"
                 anchorX="center"
                 anchorY="bottom"
@@ -894,7 +914,7 @@ function Comet({ slowed, onSelect }) {
                 </mesh>
                 <BillboardText
                     position={[0, 2.4, 0]}
-                    fontSize={1.05}
+                    fontSize={0.62}
                     color={slowed ? '#aaddff' : '#ffffff'}
                     anchorX="center"
                     anchorY="bottom"
@@ -946,7 +966,7 @@ function FloatingFactor({
             </mesh>
             <BillboardText
                 position={[0, 3, 0]}
-                fontSize={1.05}
+                fontSize={0.62}
                 color={tone}
                 anchorX="center"
                 anchorY="bottom"

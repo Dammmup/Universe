@@ -5,28 +5,48 @@ import * as THREE from 'three';
 import { useStore } from './store';
 import { FACTORS_DATA } from './data/factors';
 import { SHOTS, earthWorld } from './lib/journey';
+import { BODY_OVERVIEW, BODY_REGIONS, bodyRegionById } from './data/body';
+import SceneVeil from './scenes/effects/SceneVeil';
+import PostFX from './scenes/effects/PostFX';
+import { veilPreset } from './lib/veilPresets';
 import gsap from 'gsap';
 
-const BigBang = lazy(() => import('./scenes/BigBang'));
-const Cosmos = lazy(() => import('./scenes/Cosmos'));
-const Planet = lazy(() => import('./scenes/Planet'));
-const MicroCosmos = lazy(() => import('./scenes/MicroCosmos'));
-const HumanBody = lazy(() => import('./scenes/HumanBody'));
+const loadBigBang = () => import('./scenes/BigBang');
+const loadCosmos = () => import('./scenes/Cosmos');
+const loadPlanet = () => import('./scenes/Planet');
+const loadMicroCosmos = () => import('./scenes/MicroCosmos');
+const loadHumanBody = () => import('./scenes/HumanBody');
+
+const BigBang = lazy(loadBigBang);
+const Cosmos = lazy(loadCosmos);
+const Planet = lazy(loadPlanet);
+const MicroCosmos = lazy(loadMicroCosmos);
+const HumanBody = lazy(loadHumanBody);
+
+/** Заголовки слоёв: всплывают в момент перехода, пока кадр залит вуалью. */
+const STAGE_TITLES = {
+    0: { kicker: 'Начало', title: 'Сингулярность' },
+    1: { kicker: 'Макро-уровень', title: 'Космос' },
+    2: { kicker: 'Мезо-уровень 1', title: 'Природа и стихии' },
+    3: { kicker: 'Мезо-уровень 2', title: 'Общество' },
+    4: { kicker: 'Микро-уровень', title: 'Клетка и сознание' },
+    5: { kicker: 'Антропо-уровень', title: 'Человек' },
+};
 
 /**
  * Ограничивает разрешение рендера на слабых машинах и следит за потерей
  * контекста WebGL: без восстановления сцена оставалась бы чёрным экраном.
  */
 function RendererGuard() {
-    const { gl, scene, invalidate } = useThree();
+    const { gl, scene, camera, invalidate } = useThree();
 
     useEffect(() => {
         // В разработке отдаём рендерер наружу: так видно draw calls, число
         // треугольников и объём текстур без ручного инструментирования сцены.
         if (import.meta.env.DEV) {
-            window.realityRenderer = { gl, scene };
+            window.realityRenderer = { gl, scene, camera };
         }
-    }, [gl, scene]);
+    }, [gl, scene, camera]);
 
     useEffect(() => {
         const canvas = gl.domElement;
@@ -53,19 +73,139 @@ function RendererGuard() {
 }
 
 /**
+ * Фон сцены меняется не переключателем, а плавным переходом цвета: иначе
+ * чёрный микромир и белый антропо-уровень стыкуются вспышкой на один кадр.
+ */
+function SceneBackground() {
+    const stage = useStore((s) => s.stage);
+    const { scene } = useThree();
+    const target = useRef(new THREE.Color('#000000'));
+    const current = useRef(new THREE.Color('#000000'));
+
+    useEffect(() => {
+        target.current.set(stage === 5 ? '#e9edf4' : '#000000');
+    }, [stage]);
+
+    useEffect(() => {
+        scene.background = current.current;
+        return () => { scene.background = null; };
+    }, [scene]);
+
+    useFrame((_, delta) => {
+        current.current.lerp(target.current, Math.min(1, delta * 1.6));
+    });
+
+    return null;
+}
+
+/** Точка, к которой камера летит на каждом слое — центр композиции кадра. */
+const STAGE_SHOTS = {
+    0: { pos: [0, 0, 5], look: [0, 0, 0], fov: 60 },
+    1: SHOTS.cosmos,
+    // Точка взгляда опущена ниже центра объекта: так клетка сидит выше в
+    // кадре, и нижние подписи не наезжают на строку интерфейса
+    4: { pos: [0, 1.2, 11.2], look: [0, -0.75, 0], fov: 58 },
+    5: BODY_OVERVIEW,
+};
+
+/**
+ * Откуда начинается въезд в слой. Кадр открывается уже в движении: камера
+ * подъезжает к финальной точке, пока вуаль сходит, — из-за этого переход
+ * читается как продолжение полёта, а не как появление новой картинки.
+ */
+const STAGE_ENTRIES = {
+    0: [0, 0, 16],
+    1: [0, 34, 120],
+    4: [0, 3.4, 30],
+    5: [0, 1.4, 24],
+};
+
+/**
  * Киношный путь камеры.
- * 1→2: пролёт к Земле в Солнечной системе, затем наезд на природу.
- * 2→3: боковой сдвиг кадра к городам, планета не крутится.
+ * 1→2: пролёт к Земле в Солнечной системе, затем наезд до портрета планеты.
+ * 2→3: камера стоит, Земля поворачивается к городам.
+ * Остальные стыки накрыты вуалью, и камера продолжает движение сквозь неё.
  */
 function JourneyCamera() {
     const stage = useStore((s) => s.stage);
     const approaching = useStore((s) => s.approachingEarth);
+    const shift = useStore((s) => s.shift);
+    const bodyRegion = useStore((s) => s.bodyRegion);
     const finishEarthApproach = useStore((s) => s.finishEarthApproach);
+    const setFreeLook = useStore((s) => s.setFreeLook);
     const { camera } = useThree();
     const prevStage = useRef(stage);
     const prevApproach = useRef(approaching);
+    const prevRegion = useRef(bodyRegion);
     const look = useRef(new THREE.Vector3(0, 0, 0));
     const aimLookAt = useRef(true);
+    const unlockTimer = useRef(null);
+
+    const tweenTo = useCallback((shot, duration, ease = 'power2.inOut', keepAim = true) => {
+        gsap.killTweensOf(camera.position);
+        gsap.killTweensOf(camera);
+        gsap.killTweensOf(look.current);
+        if (unlockTimer.current) unlockTimer.current.kill();
+        aimLookAt.current = true;
+        setFreeLook(false);
+        camera.fov = camera.fov || 60;
+
+        const release = () => {
+            if (!keepAim) {
+                aimLookAt.current = false;
+                setFreeLook(true);
+            }
+        };
+
+        gsap.to(camera.position, {
+            x: shot.pos[0],
+            y: shot.pos[1],
+            z: shot.pos[2],
+            duration,
+            ease,
+            onComplete: release,
+        });
+        gsap.to(look.current, { x: shot.look[0], y: shot.look[1], z: shot.look[2], duration, ease });
+        gsap.to(camera, {
+            fov: shot.fov,
+            duration,
+            ease,
+            onUpdate: () => camera.updateProjectionMatrix(),
+        });
+        // Если позицию камеры перебьёт другой твин, onComplete мог не прийти —
+        // таймер всё равно отдаёт мышь.
+        unlockTimer.current = gsap.delayedCall(duration + 0.12, release);
+    }, [camera, setFreeLook]);
+
+    // Разгон в момент заливки кадра: вниз по масштабу камера ускоряется
+    // «внутрь», вверх — отрывается назад. Вспышка перестаёт быть статичной.
+    useEffect(() => {
+        if (!shift) return undefined;
+        const preset = veilPreset(shift.kind);
+        // Вниз по масштабу камера падает внутрь кадра, наверх — отрывается назад.
+        // Взрыв — единственное исключение: он сам расталкивает камеру от центра.
+        const inward = shift.kind === 'dive' || shift.kind === 'matter' || shift.kind === 'flesh';
+
+        const dir = new THREE.Vector3().subVectors(look.current, camera.position);
+        const dist = dir.length();
+        if (dist < 0.001) return undefined;
+        dir.normalize();
+
+        const travel = inward ? dist * 0.55 : -dist * 0.5;
+        const end = camera.position.clone().addScaledVector(dir, travel);
+
+        gsap.killTweensOf(camera.position);
+        gsap.to(camera.position, {
+            x: end.x,
+            y: end.y,
+            z: end.z,
+            duration: preset.cover,
+            ease: inward ? 'power3.in' : 'power2.in',
+        });
+        return undefined;
+        // Реагируем только на запуск нового перехода
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [shift?.token]);
 
     useEffect(() => {
         const from = prevStage.current;
@@ -73,30 +213,9 @@ function JourneyCamera() {
         prevStage.current = stage;
         prevApproach.current = approaching;
 
-        const tweenTo = (shot, duration, ease = 'power2.inOut', keepAim = true) => {
-            gsap.killTweensOf(camera.position);
-            gsap.killTweensOf(camera);
-            gsap.killTweensOf(look.current);
-            aimLookAt.current = true;
-            camera.fov = camera.fov || 60;
-            gsap.to(camera.position, {
-                x: shot.pos[0],
-                y: shot.pos[1],
-                z: shot.pos[2],
-                duration,
-                ease,
-                onComplete: () => {
-                    if (!keepAim) aimLookAt.current = false;
-                },
-            });
-            gsap.to(look.current, { x: shot.look[0], y: shot.look[1], z: shot.look[2], duration, ease });
-            gsap.to(camera, {
-                fov: shot.fov,
-                duration,
-                ease,
-                onUpdate: () => camera.updateProjectionMatrix(),
-            });
-        };
+        // Длительность въезда: пока вуаль сходит, камера должна ещё ехать
+        const veil = shift ? veilPreset(shift.kind) : null;
+        const arrival = veil ? veil.hold + veil.reveal + 0.35 : 1.4;
 
         // Пролёт к живой Земле, пока ещё видна Солнечная система
         if (approaching && !wasApproaching) {
@@ -106,12 +225,14 @@ function JourneyCamera() {
             gsap.killTweensOf(camera.position);
             gsap.killTweensOf(look.current);
             gsap.killTweensOf(camera);
+            if (unlockTimer.current) unlockTimer.current.kill();
             aimLookAt.current = true;
+            setFreeLook(false);
             gsap.to(camera.position, {
                 x: end.x,
                 y: end.y,
                 z: end.z,
-                duration: 2.35,
+                duration: 2.6,
                 ease: 'power3.in',
             });
             gsap.to(look.current, {
@@ -122,73 +243,71 @@ function JourneyCamera() {
                 ease: 'power2.inOut',
             });
             gsap.to(camera, {
-                fov: 42,
-                duration: 2.35,
+                fov: 40,
+                duration: 2.6,
                 ease: 'power2.in',
                 onUpdate: () => camera.updateProjectionMatrix(),
-                onComplete: () => {
-                    camera.position.set(...SHOTS.fromSpace.pos);
-                    look.current.set(...SHOTS.fromSpace.look);
-                    camera.fov = SHOTS.fromSpace.fov;
-                    camera.updateProjectionMatrix();
-                    finishEarthApproach();
-                },
+                onComplete: () => finishEarthApproach(),
             });
             return undefined;
         }
 
-        // Смена сцены: космос → детальная Земля. Кадр уже заполнен планетой,
-        // поэтому стартуем с близкого ракурса «из космоса» и сразу наезжаем на природу.
+        // Космос → детальная Земля. Подмена сцены уже накрыта вуалью, поэтому
+        // камеру можно поставить в стартовую точку и продолжить наезд.
         if (wasApproaching && !approaching && stage === 2) {
             camera.position.set(...SHOTS.fromSpace.pos);
             look.current.set(...SHOTS.fromSpace.look);
             camera.fov = SHOTS.fromSpace.fov;
             camera.updateProjectionMatrix();
-            tweenTo(SHOTS.nature, 2.6, 'power2.out');
+            tweenTo(SHOTS.earth, Math.max(arrival, 2.0), 'power2.out', false);
             return undefined;
         }
 
         if (stage === from && approaching === wasApproaching) return undefined;
 
-        if (stage === 2 && from === 3) {
-            tweenTo(SHOTS.nature, 2.35);
-            return undefined;
-        }
-        if (stage === 3 && from === 2) {
-            tweenTo(SHOTS.city, 2.45);
+        // Природа ↔ город: камера стоит, крутится планета
+        if ((stage === 2 && from === 3) || (stage === 3 && from === 2)) {
             return undefined;
         }
 
-        if (stage === 2 && from !== 2 && !approaching) {
+        if ((stage === 2 || stage === 3) && from !== 2 && from !== 3 && !approaching) {
             camera.position.set(...SHOTS.fromSpace.pos);
             look.current.set(...SHOTS.fromSpace.look);
-            tweenTo(SHOTS.nature, 2.2, 'power2.out');
-            return undefined;
-        }
-        if (stage === 3 && from !== 3 && from !== 2) {
-            camera.position.set(...SHOTS.city.pos);
-            look.current.set(...SHOTS.city.look);
-            camera.fov = SHOTS.city.fov;
+            camera.fov = SHOTS.fromSpace.fov;
             camera.updateProjectionMatrix();
+            tweenTo(SHOTS.earth, Math.max(arrival, 2.0), 'power2.out', false);
             return undefined;
         }
 
-        const fallback = {
-            0: { pos: [0, 0, 5], look: [0, 0, 0], fov: 60 },
-            1: SHOTS.cosmos,
-            4: { pos: [0, 1.4, 9], look: [0, 0, 0], fov: 60 },
-            5: { pos: [0, 0.35, 8.5], look: [0, 0, 0], fov: 60 },
-        };
-        const shot = fallback[stage];
+        const shot = STAGE_SHOTS[stage];
         if (!shot) return undefined;
 
-        if (stage === 4 && from === 3) camera.position.set(0, 0, 35);
-        else if (stage === 4 && from === 5) camera.position.set(0, 0, 18);
-        else if (stage === 5 && from === 4) camera.position.set(0, 0, 12);
+        const entry = STAGE_ENTRIES[stage];
+        if (entry && shift) {
+            // Под вуалью ставим камеру в точку въезда — зритель этого не видит
+            camera.position.set(...entry);
+            look.current.set(...shot.look);
+            camera.fov = Math.min(shot.fov + 12, 85);
+            camera.updateProjectionMatrix();
+        }
 
-        tweenTo(shot, stage === 4 || from === 4 ? 1.5 : 1.3, 'power2.inOut', false);
+        tweenTo(shot, arrival, 'power2.out', false);
         return undefined;
-    }, [stage, approaching, camera, finishEarthApproach]);
+        // shift читаем как «есть ли активная вуаль», перезапуск от него не нужен
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stage, approaching, camera, finishEarthApproach, setFreeLook, tweenTo]);
+
+    // Антропо-уровень: выбор области подводит камеру к ней, сброс — возвращает
+    // фигуру целиком. Отдельный эффект, потому что стадия при этом не меняется.
+    useEffect(() => {
+        const before = prevRegion.current;
+        prevRegion.current = bodyRegion;
+        if (stage !== 5 || before === bodyRegion) return undefined;
+
+        const region = bodyRegionById(bodyRegion);
+        tweenTo(region ? region.shot : BODY_OVERVIEW, region ? 1.5 : 1.7, 'power2.inOut', false);
+        return undefined;
+    }, [bodyRegion, stage, tweenTo]);
 
     useFrame(() => {
         if (aimLookAt.current) camera.lookAt(look.current);
@@ -208,14 +327,46 @@ export default function App() {
     const clearFactor = useStore((s) => s.clearFactor);
     const resetJourney = useStore((s) => s.resetJourney);
     const approachingEarth = useStore((s) => s.approachingEarth);
+    const freeLook = useStore((s) => s.freeLook);
+    const shift = useStore((s) => s.shift);
+    const bodyRegion = useStore((s) => s.bodyRegion);
+    const setBodyRegion = useStore((s) => s.setBodyRegion);
     const nextStage = useStore((s) => s.nextStage);
 
     const [humanLayer, setHumanLayer] = useState('organs');
     const activeFactor = activeFactorId ? FACTORS_DATA[activeFactorId] : null;
+    const shifting = !!shift;
+    const activeRegion = bodyRegionById(bodyRegion);
+    const bodyLook = (activeRegion?.shot ?? BODY_OVERVIEW).look;
+
+    // Заголовок слоя, в который идёт переход
+    const incomingStage = shift?.commit?.type === 'stage' ? shift.commit.to : stage;
+    const title = STAGE_TITLES[incomingStage];
 
     const onCanvasCreated = useCallback(({ gl }) => {
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1.05;
+    }, []);
+
+    const onPointerMissed = useCallback(() => {
+        const state = useStore.getState();
+        if (state.activeFactorId) state.clearFactor();
+        else if (state.bodyRegion) state.setBodyRegion(null);
+    }, []);
+
+    // Сцены подгружаем заранее: иначе чанк грузится в момент перехода и вместо
+    // кинематографичной стыковки зритель видит спиннер Suspense.
+    useEffect(() => {
+        const idle = window.requestIdleCallback ?? ((cb) => setTimeout(cb, 400));
+        const handle = idle(() => {
+            loadCosmos();
+            loadPlanet();
+            loadMicroCosmos();
+            loadHumanBody();
+        });
+        return () => {
+            if (window.cancelIdleCallback) window.cancelIdleCallback(handle);
+        };
     }, []);
 
     useEffect(() => {
@@ -231,11 +382,18 @@ export default function App() {
             if (e.ctrlKey || e.metaKey) return;
 
             const state = useStore.getState();
-            const threshold = state.stage === 4 ? 320 : (state.stage >= 1 ? 40 : 5);
+            // Единый порог на всех слоях. Отдельный порог 320 на микро-уровне
+            // отдавал колесо зуму, но реальная мышь шлёт 120 — из клетки нельзя
+            // было уйти ни вперёд, ни назад, и микромир «вылезал» второй раз
+            // при возврате с антропо-уровня. Зум остался на Ctrl + колесо.
+            const threshold = state.stage >= 1 ? 40 : 5;
             if (Math.abs(e.deltaY) < threshold) return;
 
             e.preventDefault();
             e.stopPropagation();
+
+            // Пока идёт переход, колесо не копится в очередь
+            if (state.shift) return;
 
             if (!gestureLocked) {
                 gestureLocked = true;
@@ -251,11 +409,21 @@ export default function App() {
                     state.prevStage();
                 }
 
-                const to = useStore.getState().stage;
-                // 2↔3 крутят одну планету ~2.2с: без паузы следующий жест уносит в микромир
-                const holdMs = (from === 1 && to === 2)
-                    ? 5000
-                    : ((from === 2 || from === 3 || to === 2 || to === 3) ? 2600 : 1300);
+                const after = useStore.getState();
+                const to = after.stage;
+                let holdMs;
+                if (after.approachingEarth) {
+                    // Пролёт сквозь систему + вспышка атмосферы
+                    holdMs = 5200;
+                } else if (after.shift) {
+                    const preset = veilPreset(after.shift.kind);
+                    holdMs = (preset.cover + preset.hold + preset.reveal) * 1000 + 250;
+                } else if (from === 2 || from === 3 || to === 2 || to === 3) {
+                    // 2↔3 крутят одну планету ~2.4с
+                    holdMs = 2600;
+                } else {
+                    holdMs = 1300;
+                }
                 holdUntil = performance.now() + holdMs;
             }
 
@@ -274,7 +442,7 @@ export default function App() {
     }, []);
 
     return (
-        <div className={`relative w-screen h-screen overflow-hidden font-sans transition-colors duration-500 ${stage === 5 ? 'bg-white text-slate-950' : 'bg-black text-white'}`}>
+        <div className={`relative w-screen h-screen overflow-hidden font-sans transition-colors duration-[1200ms] ${stage === 5 ? 'bg-[#e9edf4] text-slate-950' : 'bg-black text-white'}`}>
 
             {/* 3D Canvas */}
             <div className="absolute inset-0">
@@ -283,25 +451,30 @@ export default function App() {
                     dpr={[1, 1.75]}
                     gl={{ antialias: true, powerPreference: 'high-performance', stencil: false }}
                     onCreated={onCanvasCreated}
+                    /* Клик мимо всего — выход из области тела обратно к фигуре */
+                    onPointerMissed={onPointerMissed}
                 >
-                    <color attach="background" args={[stage === 5 ? '#ffffff' : '#000000']} />
-
                     <RendererGuard />
+                    <SceneBackground />
                     <JourneyCamera />
 
-                    {/* На природе и в городе кадр держит режиссёрская камера,
-                        иначе OrbitControls сбивает наезд и боковой сдвиг */}
-                    {isExploded && stage >= 1 && stage !== 2 && stage !== 3 && !approachingEarth && (
+                    {/* Во время киношного наезда мышь не крутит камеру.
+                        На природе и в городе после кадра — тот же облёт, чтобы
+                        дотянуться до факторов на краях и обратной стороне. */}
+                    {isExploded && stage >= 1 && !approachingEarth && freeLook && !shifting && (
                         <OrbitControls
-                            key={stage}
-                            enableZoom={true}
+                            /* На теле облёт должен крутиться вокруг выбранной области.
+                               С общей точкой [0,0,0] управление, перехватив камеру
+                               после наезда, рывком уводило взгляд с головы в центр фигуры. */
+                            key={stage === 2 || stage === 3 ? 'planet' : (stage === 5 ? `body-${bodyRegion ?? 'all'}` : stage)}
+                            enableZoom
                             enablePan={false}
-                            zoomSpeed={stage === 4 ? 1.05 : 0.6}
-                            minDistance={stage === 4 ? 1.4 : 5}
-                            maxDistance={stage === 4 ? 80 : 200}
+                            zoomSpeed={stage === 4 ? 1.05 : (stage === 2 || stage === 3 ? 0.75 : 0.6)}
+                            minDistance={stage === 2 || stage === 3 ? 18 : stage === 4 ? 1.4 : (stage === 5 ? 1.6 : 5)}
+                            maxDistance={stage === 2 || stage === 3 ? 90 : stage === 4 ? 80 : (stage === 5 ? 26 : 200)}
                             dampingFactor={0.08}
                             enableDamping
-                            target={[0, 0, 0]}
+                            target={stage === 2 || stage === 3 ? [0, 0.4, 0] : (stage === 5 ? bodyLook : [0, 0, 0])}
                             makeDefault
                         />
                     )}
@@ -321,11 +494,38 @@ export default function App() {
                         {stage === 5 && <HumanBody mode={humanLayer} />}
                     </Suspense>
 
+                    {/* Вуаль рисуется последней и накрывает стык слоёв */}
+                    <SceneVeil />
+
+                    {/* На светлом антропо-уровне порог свечения поднят: иначе
+                        сам фон проходит порог и размывает тело в молоко */}
+                    <PostFX
+                        bloomStrength={stage === 5 ? 0.32 : 0.5}
+                        bloomThreshold={stage === 5 ? 1.15 : 0.85}
+                        vignette={stage === 5 ? 0.16 : 0.44}
+                    />
+
                 </Canvas>
             </div>
 
+            {/* Титр слоя: живёт ровно столько, сколько кадр залит вуалью */}
+            <div
+                className={`pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center transition-opacity duration-700 ${shifting ? 'opacity-100' : 'opacity-0'}`}
+            >
+                {title && (
+                    <>
+                        <p className={`text-[11px] tracking-[0.55em] uppercase mb-3 transition-transform duration-1000 ${shifting ? 'translate-y-0' : 'translate-y-3'} ${incomingStage === 5 ? 'text-slate-900/70' : 'text-white/60'}`}>
+                            {title.kicker}
+                        </p>
+                        <h2 className={`text-3xl md:text-5xl font-light tracking-[0.22em] uppercase transition-transform duration-1000 ${shifting ? 'translate-y-0 scale-100' : 'translate-y-4 scale-95'} ${incomingStage === 5 ? 'text-slate-900' : 'text-white'}`}>
+                            {title.title}
+                        </h2>
+                    </>
+                )}
+            </div>
+
             {/* UI Overlay */}
-            <div className="absolute bottom-10 w-full text-center pointer-events-none data-ui">
+            <div className={`absolute bottom-10 w-full text-center pointer-events-none data-ui transition-opacity duration-500 ${shifting ? 'opacity-0' : 'opacity-100'}`}>
                 {!isExploded && (
                     <p className="text-white/50 tracking-[0.3em] uppercase text-xs animate-pulse">
                         Скролль вниз для старта
@@ -348,7 +548,7 @@ export default function App() {
                         <p className="tracking-widest uppercase text-sm mb-2">
                             Мезо-уровень 1: Природа и Стихии
                         </p>
-                        <p className="text-xs text-white/40">Горы, леса, облака. Скролль дальше — сдвиг к городам.</p>
+                        <p className="text-xs text-white/40">Вращай планету, кликай на факторы. Скролль дальше — Земля повернётся к городам.</p>
                     </div>
                 )}
                 {stage === 3 && (
@@ -356,7 +556,7 @@ export default function App() {
                         <p className="tracking-widest uppercase text-sm mb-2 text-yellow-500">
                             Мезо-уровень 2: Общество и Цивилизация
                         </p>
-                        <p className="text-xs text-white/40">Улицы и небоскрёбы. Взгляд смещён вдоль планеты.</p>
+                        <p className="text-xs text-white/40">Вращай планету, кликай на факторы. Скролль дальше — в микромир.</p>
                     </div>
                 )}
                 {stage === 4 && (
@@ -365,7 +565,7 @@ export default function App() {
                             Микро-уровень: Рождение Сознания
                         </p>
                         <p className="text-xs text-white/40 mb-4 font-light">
-                            Внутри клеток и синапсов. Колесо мыши приближает факторы.
+                            Внутри клеток и синапсов. Скролль дальше — к человеку. Ctrl + колесо приближает.
                         </p>
                         <button
                             onClick={nextStage}
@@ -378,8 +578,40 @@ export default function App() {
                 {stage === 5 && (
                     <div className="text-slate-700 animate-fade-in relative z-50 pointer-events-auto">
                         <p className="tracking-widest uppercase text-sm mb-2 text-rose-600">
-                            Антропо-уровень: Тело, Эмоции, Личность
+                            {activeRegion
+                                ? `Антропо-уровень: ${activeRegion.title}`
+                                : 'Антропо-уровень: Тело, Эмоции, Личность'}
                         </p>
+                        {humanLayer === 'organs' && (
+                            <p className="text-xs text-slate-500 mb-3">
+                                {activeRegion
+                                    ? 'Кликай по факторам области. Пустое место — назад к фигуре.'
+                                    : 'Наведи курсор на часть тела и кликни — раскроются её факторы.'}
+                            </p>
+                        )}
+                        {humanLayer === 'organs' && (
+                            <div className="inline-flex flex-wrap items-center justify-center gap-1 mb-3">
+                                {BODY_REGIONS.map((region) => (
+                                    <button
+                                        key={region.id}
+                                        onClick={() => setBodyRegion(bodyRegion === region.id ? null : region.id)}
+                                        className={`px-3 py-1 rounded-full border text-[11px] uppercase tracking-wider transition-colors ${bodyRegion === region.id
+                                            ? 'border-cyan-500 bg-cyan-500 text-white'
+                                            : 'border-slate-300 bg-white/70 text-slate-500 hover:text-slate-950'}`}
+                                    >
+                                        {region.title}
+                                    </button>
+                                ))}
+                                {bodyRegion && (
+                                    <button
+                                        onClick={() => setBodyRegion(null)}
+                                        className="px-3 py-1 rounded-full border border-slate-300 bg-white/70 text-[11px] uppercase tracking-wider text-slate-500 hover:text-slate-950 transition-colors"
+                                    >
+                                        ← Всё тело
+                                    </button>
+                                )}
+                            </div>
+                        )}
                         <div className="inline-flex items-center gap-1 p-1 mb-4 rounded-full border border-slate-300 bg-white/75 shadow-sm backdrop-blur-md">
                             <button
                                 onClick={() => setHumanLayer('organs')}
