@@ -6,6 +6,7 @@ import { useStore } from './store';
 import { FACTORS_DATA } from './data/factors';
 import { SHOTS, earthWorld } from './lib/journey';
 import { BODY_OVERVIEW, BODY_REGIONS, bodyRegionById } from './data/body';
+import Onboarding from './components/Onboarding';
 import SceneVeil from './scenes/effects/SceneVeil';
 import PostFX from './scenes/effects/PostFX';
 import { veilPreset } from './lib/veilPresets';
@@ -537,6 +538,8 @@ export default function App() {
                     </>
                 )}
             </div>
+
+            <Onboarding stage={stage} hidden={shifting || !!activeFactor} light={stage === 5} />
 
             {/* UI Overlay */}
             <div className={`absolute bottom-10 w-full text-center pointer-events-none data-ui transition-opacity duration-500 ${shifting ? 'opacity-0' : 'opacity-100'}`}>
