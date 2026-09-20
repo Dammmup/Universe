@@ -16,12 +16,14 @@ const loadCosmos = () => import('./scenes/Cosmos');
 const loadPlanet = () => import('./scenes/Planet');
 const loadMicroCosmos = () => import('./scenes/MicroCosmos');
 const loadHumanBody = () => import('./scenes/HumanBody');
+const loadFinale = () => import('./scenes/Finale');
 
 const BigBang = lazy(loadBigBang);
 const Cosmos = lazy(loadCosmos);
 const Planet = lazy(loadPlanet);
 const MicroCosmos = lazy(loadMicroCosmos);
 const HumanBody = lazy(loadHumanBody);
+const Finale = lazy(loadFinale);
 
 /** Заголовки слоёв: всплывают в момент перехода, пока кадр залит вуалью. */
 const STAGE_TITLES = {
@@ -31,6 +33,7 @@ const STAGE_TITLES = {
     3: { kicker: 'Мезо-уровень 2', title: 'Общество' },
     4: { kicker: 'Микро-уровень', title: 'Клетка и сознание' },
     5: { kicker: 'Антропо-уровень', title: 'Человек' },
+    6: { kicker: 'Путь пройден', title: 'Итог' },
 };
 
 /**
@@ -106,6 +109,8 @@ const STAGE_SHOTS = {
     // кадре, и нижние подписи не наезжают на строку интерфейса
     4: { pos: [0, 1.2, 11.2], look: [0, -0.75, 0], fov: 58 },
     5: BODY_OVERVIEW,
+    // Финал: вся нить масштабов целиком в кадре
+    6: { pos: [0, -0.1, 9.6], look: [0, 0.1, 0], fov: 46 },
 };
 
 /**
@@ -118,6 +123,7 @@ const STAGE_ENTRIES = {
     1: [0, 34, 120],
     4: [0, 3.4, 30],
     5: [0, 1.4, 24],
+    6: [0, 1.2, 26],
 };
 
 /**
@@ -333,6 +339,12 @@ export default function App() {
     const setBodyRegion = useStore((s) => s.setBodyRegion);
     const nextStage = useStore((s) => s.nextStage);
 
+    // Сколько факторов зритель перевернул за путь — это итог, который
+    // показывает финальный экран
+    const reversedCount = useStore(
+        (s) => Object.values(s.reversedFactors).filter(Boolean).length,
+    );
+
     const [humanLayer, setHumanLayer] = useState('organs');
     const activeFactor = activeFactorId ? FACTORS_DATA[activeFactorId] : null;
     const shifting = !!shift;
@@ -363,6 +375,7 @@ export default function App() {
             loadPlanet();
             loadMicroCosmos();
             loadHumanBody();
+            loadFinale();
         });
         return () => {
             if (window.cancelIdleCallback) window.cancelIdleCallback(handle);
@@ -492,6 +505,7 @@ export default function App() {
                         {(stage === 2 || stage === 3) && !approachingEarth && <Planet />}
                         {stage === 4 && <MicroCosmos />}
                         {stage === 5 && <HumanBody mode={humanLayer} />}
+                        {stage === 6 && <Finale />}
                     </Suspense>
 
                     {/* Вуаль рисуется последней и накрывает стык слоёв */}
@@ -626,9 +640,29 @@ export default function App() {
                                 Эмоции
                             </button>
                         </div>
+                        <p className="text-[11px] text-slate-400 mt-1">Скролль дальше — к итогу пути.</p>
+                    </div>
+                )}
+                {stage === 6 && (
+                    <div className="animate-fade-in relative z-50 pointer-events-auto max-w-xl mx-auto px-6">
+                        <p className="tracking-[0.45em] uppercase text-[10px] mb-4 text-white/35">
+                            Путь пройден
+                        </p>
+                        <p className="text-sm text-white/65 leading-relaxed mb-3">
+                            Шесть масштабов — от сингулярности до собственного тела.
+                            Везде работали одни и те же факторы, только под разными именами.
+                        </p>
+                        <p className="text-sm text-cyan-200/80 mb-5">
+                            {reversedCount > 0
+                                ? `Ты перевернул факторов: ${reversedCount}. Реальность осталась собранной.`
+                                : 'Ты не перевернул ни одного фактора. Пройди снова и попробуй — мир соберётся иначе.'}
+                        </p>
+                        <p className="text-base text-white/90 italic mb-6">
+                            «Я не просто изучаю вселенную. Я её активирую.»
+                        </p>
                         <button
                             onClick={resetJourney}
-                            className="px-6 py-2 border border-slate-300 rounded-full text-xs uppercase tracking-wider text-slate-600 hover:bg-slate-950 hover:text-white transition-colors"
+                            className="px-6 py-2 border border-white/30 rounded-full text-xs uppercase tracking-wider text-white/70 hover:bg-white hover:text-black transition-colors"
                         >
                             Пройти путь снова
                         </button>

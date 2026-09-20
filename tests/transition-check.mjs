@@ -67,7 +67,8 @@ await step('1-dive', () => wheel(), { flashAt: 3200, settle: 3200 });
 await step('2-spin', () => wheel(), { flashAt: 1200, settle: 2600 });
 await step('3-matter', () => wheel(400), { flashAt: 1100, settle: 3000 });
 await step('4-flesh', () => page.evaluate(() => window.realityStore.getState().nextStage()), { flashAt: 1100, settle: 3200 });
-await step('5-back', () => page.evaluate(() => window.realityStore.getState().prevStage()), { flashAt: 900, settle: 2800 });
+await step('5-origin', () => wheel(), { flashAt: 1300, settle: 3600 });
+await step('6-back', () => page.evaluate(() => window.realityStore.getState().prevStage()), { flashAt: 1100, settle: 3400 });
 
 console.log(JSON.stringify({ report, errors }, null, 2));
 
@@ -76,7 +77,8 @@ const ok = report[0].settled.stage === 1
     && report[2].settled.stage === 3
     && report[3].settled.stage === 4
     && report[4].settled.stage === 5
-    && report[5].settled.stage === 4
+    && report[5].settled.stage === 6
+    && report[6].settled.stage === 5
     && errors.length === 0;
 
 await browser.close();

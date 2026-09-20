@@ -34,6 +34,12 @@ export const VEIL_PRESETS = {
         cover: 0.75, hold: 0.18, reveal: 1.3,
         coverEase: 'power2.in', revealEase: 'power2.out',
     },
+    // Выход к итогу: светлый слой тела растворяется обратно в темноту начала
+    origin: {
+        core: '#ffffff', edge: '#0a0c14', streaks: 0.35, grain: 0.02,
+        cover: 1.1, hold: 0.4, reveal: 2.0,
+        coverEase: 'power2.inOut', revealEase: 'power2.out',
+    },
     // Схлопывание назад к предыдущему масштабу
     collapse: {
         core: '#ffffff', edge: '#0b0d12', streaks: 0.3, grain: 0.02,
