@@ -104,7 +104,17 @@ function resample(controls, steps) {
     return sections;
 }
 
-const build = (controls, steps, radial) => sweep(resample(controls, steps), radial);
+/**
+ * Оболочка по опорным сечениям: осевая линия и профиль радиусов сглаживаются,
+ * затем протягиваются кольцами. Тем же строятся органы (`lib/organs.js`) —
+ * сердце, доли лёгких и петли кишечника это те же сечения вдоль кривой.
+ *
+ * Оси кадра зависят от направления протяжки: для вертикальной `rx` — ширина
+ * (X), `rz` — глубина (Z); для протяжки вдоль X `rx` становится высотой.
+ */
+export const sweepProfile = (controls, steps = 80, radial = 24) => sweep(resample(controls, steps), radial);
+
+const build = (controls, steps, radial) => sweepProfile(controls, steps, radial);
 
 /**
  * Торс, шея и голова одной оболочкой: разрез на границе всегда заметен на

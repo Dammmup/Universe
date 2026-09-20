@@ -5,6 +5,17 @@ import * as THREE from 'three';
 import { useStore } from '../store';
 import { BODY_REGIONS } from '../data/body';
 import { buildFigure, disposeFigure } from '../lib/anatomy';
+import {
+    buildBrainstem,
+    buildCerebellum,
+    buildColon,
+    buildHeart,
+    buildHemisphere,
+    buildLiver,
+    buildLung,
+    buildSmallIntestine,
+    buildStomach,
+} from '../lib/organs';
 import { fresnelFragment, fresnelVertex, tissueFragment, tissueVertex } from '../lib/shaders/life';
 import FactorMarker from './effects/FactorMarker';
 
@@ -122,68 +133,80 @@ function FlowCells({ curve, count, color, speed, reversed, radius = 0.035 }) {
     );
 }
 
+/**
+ * Где органы стоят в теле. Координаты — пространство фигуры из `lib/anatomy.js`:
+ * грудная клетка около y = 2, талия около 1.1, таз около 0.3.
+ */
+const ORGAN_AT = {
+    brain: [0, 3.34, 0.0],
+    heart: [-0.10, 1.90, 0.10],
+    lungLeft: [-0.36, 1.99, 0.02],
+    lungRight: [0.36, 1.99, 0.02],
+    liver: [0.20, 1.34, 0.06],
+    stomach: [-0.22, 1.30, 0.10],
+    gut: [0, 0.82, 0.06],
+};
+
 function Heart({ reversed }) {
     const pulse = useRef();
-    const ventricle = useMemo(() => new THREE.SphereGeometry(0.28, 28, 20), []);
-    const atrium = useMemo(() => new THREE.SphereGeometry(0.16, 20, 16), []);
+    const body = useMemo(() => buildHeart(), []);
+    const atrium = useMemo(() => new THREE.SphereGeometry(0.11, 20, 14), []);
+
+    useEffect(() => () => {
+        body.dispose();
+        atrium.dispose();
+    }, [body, atrium]);
+
+    // Дуга аорты живёт в координатах фигуры: она уходит из сердца вниз вдоль
+    // позвоночника и не принадлежит локальной геометрии органа
     const aorta = useMemo(() => makeCurve([
-        [0.02, 1.05, 0.42],
-        [0.05, 1.38, 0.38],
-        [0.22, 1.52, 0.28],
-        [0.05, 1.48, 0.12],
-        [-0.05, 0.55, 0.18],
-        [-0.02, -0.85, 0.12],
-        [-0.04, -2.15, 0.08],
+        [-0.04, 2.00, 0.06],
+        [0.02, 2.22, 0.02],
+        [0.11, 2.32, -0.06],
+        [0.02, 2.24, -0.14],
+        [-0.02, 1.80, -0.13],
+        [-0.02, 1.10, -0.11],
+        [-0.02, 0.40, -0.07],
+        [-0.02, 0.05, -0.05],
     ]), []);
 
     useFrame((state) => {
         if (!pulse.current) return;
         const beat = reversed
-            ? 0.88 + Math.sin(state.clock.elapsedTime * 1.3) * 0.03
-            : 1 + Math.pow(Math.max(0, Math.sin(state.clock.elapsedTime * 6.2)), 8) * 0.16;
+            ? 0.9 + Math.sin(state.clock.elapsedTime * 1.3) * 0.025
+            : 1 + Math.pow(Math.max(0, Math.sin(state.clock.elapsedTime * 6.2)), 8) * 0.11;
         pulse.current.scale.setScalar(beat);
     });
 
-    const color = reversed ? '#5a1e22' : '#e0233a';
-    const crease = reversed ? '#3a1014' : '#8a1020';
+    const color = reversed ? '#5a1e22' : '#d8253c';
+    const crease = reversed ? '#3a1014' : '#87101f';
 
     return (
         <group>
-            <group ref={pulse} position={[0.08, 0.92, 0.42]} scale={1.18}>
+            <group ref={pulse} position={ORGAN_AT.heart}>
                 <TissueOrgan
-                    geometry={ventricle}
+                    geometry={body}
                     color={color}
                     crease={crease}
-                    emissive={reversed ? '#190407' : '#7a1020'}
-                    glow={reversed ? 0.12 : 0.55}
-                    fold={0.03}
-                    scale={[1.05, 1.2, 0.9]}
-                    position={[0.06, -0.04, 0]}
+                    emissive={reversed ? '#190407' : '#6e0f1c'}
+                    glow={reversed ? 0.12 : 0.45}
+                    fold={0.012}
                 />
-                <TissueOrgan
-                    geometry={ventricle}
-                    color={reversed ? '#4a1820' : '#c41e38'}
-                    crease={crease}
-                    emissive="#4a0810"
-                    glow={reversed ? 0.1 : 0.4}
-                    fold={0.025}
-                    scale={[0.78, 0.95, 0.82]}
-                    position={[-0.16, -0.06, 0.08]}
-                />
-                <mesh geometry={atrium} position={[0.16, 0.22, 0.02]} scale={[1.05, 0.8, 0.9]}>
-                    <meshStandardMaterial color={reversed ? '#5a1e22' : '#ff6677'} emissive="#33050a" emissiveIntensity={0.35} roughness={0.5} />
+                {/* Предсердия: два мешка на основании желудочков */}
+                <mesh geometry={atrium} position={[0.10, 0.15, -0.01]} scale={[1, 0.78, 0.92]}>
+                    <meshStandardMaterial color={reversed ? '#5a1e22' : '#e8697a'} emissive="#33050a" emissiveIntensity={0.3} roughness={0.5} />
                 </mesh>
-                <mesh geometry={atrium} position={[-0.14, 0.2, 0.08]} scale={[0.95, 0.75, 0.85]}>
-                    <meshStandardMaterial color={reversed ? '#5a1e22' : '#ff6677'} emissive="#33050a" emissiveIntensity={0.35} roughness={0.5} />
+                <mesh geometry={atrium} position={[-0.13, 0.13, 0.02]} scale={[0.88, 0.72, 0.88]}>
+                    <meshStandardMaterial color={reversed ? '#5a1e22' : '#e8697a'} emissive="#33050a" emissiveIntensity={0.3} roughness={0.5} />
                 </mesh>
             </group>
-            <mesh>
-                <tubeGeometry args={[aorta, 48, reversed ? 0.028 : 0.045, 8, false]} />
+            <mesh raycast={() => null}>
+                <tubeGeometry args={[aorta, 56, reversed ? 0.022 : 0.033, 8, false]} />
                 <meshStandardMaterial
-                    color={reversed ? '#773333' : '#ff243f'}
-                    emissive={reversed ? '#200808' : '#66111a'}
-                    emissiveIntensity={0.45}
-                    roughness={0.4}
+                    color={reversed ? '#773333' : '#e0273c'}
+                    emissive={reversed ? '#200808' : '#5c0f18'}
+                    emissiveIntensity={0.4}
+                    roughness={0.45}
                 />
             </mesh>
         </group>
@@ -192,70 +215,79 @@ function Heart({ reversed }) {
 
 function Lungs({ reversed }) {
     const ref = useRef();
-    const lobe = useMemo(() => new THREE.SphereGeometry(0.42, 28, 22), []);
+    // Левая доля поджата сердечной вырезкой — она заметно меньше правой
+    const left = useMemo(() => buildLung(1), []);
+    const right = useMemo(() => buildLung(0), []);
+
+    useEffect(() => () => {
+        left.dispose();
+        right.dispose();
+    }, [left, right]);
+
     const trachea = useMemo(() => makeCurve([
-        [0, 1.72, 0.22],
-        [0, 1.42, 0.24],
-        [0, 1.22, 0.26],
+        [0, 2.66, -0.02],
+        [0, 2.46, -0.01],
+        [0, 2.26, 0.00],
     ]), []);
     const leftBronchus = useMemo(() => makeCurve([
-        [0, 1.22, 0.26],
-        [-0.22, 1.12, 0.24],
-        [-0.42, 0.95, 0.2],
+        [0, 2.26, 0.00],
+        [-0.14, 2.16, 0.01],
+        [-0.28, 2.04, 0.02],
     ]), []);
     const rightBronchus = useMemo(() => makeCurve([
-        [0, 1.22, 0.26],
-        [0.24, 1.12, 0.24],
-        [0.46, 0.95, 0.2],
+        [0, 2.26, 0.00],
+        [0.14, 2.16, 0.01],
+        [0.28, 2.04, 0.02],
     ]), []);
 
     useFrame((state) => {
         if (!ref.current) return;
+        const t = state.clock.elapsedTime;
         const breath = reversed
-            ? 0.9 + Math.sin(state.clock.elapsedTime * 1.05) * 0.02
-            : 1 + Math.sin(state.clock.elapsedTime * 1.7) * 0.07;
-        ref.current.scale.set(1, breath, 1);
+            ? 0.93 + Math.sin(t * 1.05) * 0.012
+            : 1 + Math.sin(t * 1.55) * 0.045;
+        ref.current.scale.set(breath, breath, breath);
     });
 
-    const color = reversed ? '#51606a' : '#7ec8e8';
-    const crease = reversed ? '#2d3840' : '#3d7a96';
+    const color = reversed ? '#3f5a66' : '#89c2d8';
+    const crease = reversed ? '#22333c' : '#5b96b0';
 
     return (
-        <group ref={ref}>
-            <TissueOrgan
-                geometry={lobe}
-                color={color}
-                crease={crease}
-                emissive={reversed ? '#101418' : '#1a5068'}
-                glow={reversed ? 0.08 : 0.28}
-                fold={0.1}
-                alpha={0.72}
-                scale={[0.85, 1.25, 0.62]}
-                position={[-0.52, 1.02, 0.18]}
-                rotation={[0.12, 0.2, 0.08]}
-            />
-            <TissueOrgan
-                geometry={lobe}
-                color={color}
-                crease={crease}
-                emissive={reversed ? '#101418' : '#1a5068'}
-                glow={reversed ? 0.08 : 0.28}
-                fold={0.1}
-                alpha={0.72}
-                scale={[0.92, 1.32, 0.66]}
-                position={[0.55, 1.0, 0.18]}
-                rotation={[0.12, -0.2, -0.08]}
-            />
-            <mesh>
-                <tubeGeometry args={[trachea, 12, 0.045, 8, false]} />
+        <group>
+            <group ref={ref}>
+                <TissueOrgan
+                    geometry={left}
+                    color={color}
+                    crease={crease}
+                    emissive={reversed ? '#101418' : '#1a5068'}
+                    glow={reversed ? 0.08 : 0.24}
+                    fold={0.013}
+                    alpha={0.88}
+                    position={ORGAN_AT.lungLeft}
+                    rotation={[0, 0, 0.06]}
+                />
+                <TissueOrgan
+                    geometry={right}
+                    color={color}
+                    crease={crease}
+                    emissive={reversed ? '#101418' : '#1a5068'}
+                    glow={reversed ? 0.08 : 0.24}
+                    fold={0.013}
+                    alpha={0.88}
+                    position={ORGAN_AT.lungRight}
+                    rotation={[0, 0, -0.06]}
+                />
+            </group>
+            <mesh raycast={() => null}>
+                <tubeGeometry args={[trachea, 16, 0.035, 8, false]} />
                 <meshStandardMaterial color="#d7f2ff" transparent opacity={0.7} roughness={0.45} />
             </mesh>
-            <mesh>
-                <tubeGeometry args={[leftBronchus, 10, 0.028, 6, false]} />
+            <mesh raycast={() => null}>
+                <tubeGeometry args={[leftBronchus, 12, 0.022, 6, false]} />
                 <meshStandardMaterial color="#c5e8f6" transparent opacity={0.65} />
             </mesh>
-            <mesh>
-                <tubeGeometry args={[rightBronchus, 10, 0.028, 6, false]} />
+            <mesh raycast={() => null}>
+                <tubeGeometry args={[rightBronchus, 12, 0.022, 6, false]} />
                 <meshStandardMaterial color="#c5e8f6" transparent opacity={0.65} />
             </mesh>
         </group>
@@ -263,42 +295,51 @@ function Lungs({ reversed }) {
 }
 
 function Brain({ reversed }) {
-    const hemi = useMemo(() => new THREE.SphereGeometry(0.48, 40, 28), []);
-    const glow = reversed ? 0.12 : 0.42;
+    const hemisphere = useMemo(() => buildHemisphere(), []);
+    const cerebellum = useMemo(() => buildCerebellum(), []);
+    const stem = useMemo(() => buildBrainstem(), []);
+
+    useEffect(() => () => {
+        hemisphere.dispose();
+        cerebellum.dispose();
+        stem.dispose();
+    }, [hemisphere, cerebellum, stem]);
+
+    const glow = reversed ? 0.12 : 0.4;
+    const color = reversed ? '#8a6680' : '#e8a0c8';
+    const crease = reversed ? '#4a3048' : '#a8578c';
 
     return (
-        <group position={[0, 2.18, 0.12]}>
+        <group position={ORGAN_AT.brain}>
+            {/* Два полушария с продольной щелью между ними */}
             <TissueOrgan
-                geometry={hemi}
-                color={reversed ? '#8a6680' : '#e8a0c8'}
-                crease={reversed ? '#4a3048' : '#b06090'}
+                geometry={hemisphere}
+                color={color}
+                crease={crease}
                 emissive={reversed ? '#201020' : '#7a1457'}
                 glow={glow}
-                fold={0.055}
-                scale={[0.78, 0.62, 0.7]}
-                position={[-0.22, 0, 0]}
+                fold={0.026}
+                position={[-0.19, 0, 0.02]}
             />
             <TissueOrgan
-                geometry={hemi}
-                color={reversed ? '#8a6680' : '#e8a0c8'}
-                crease={reversed ? '#4a3048' : '#b06090'}
+                geometry={hemisphere}
+                color={color}
+                crease={crease}
                 emissive={reversed ? '#201020' : '#7a1457'}
                 glow={glow}
-                fold={0.055}
-                scale={[0.78, 0.62, 0.7]}
-                position={[0.22, 0, 0]}
+                fold={0.026}
+                position={[0.19, 0, 0.02]}
             />
-            <mesh position={[0, -0.32, 0.05]} scale={[0.55, 0.32, 0.48]}>
-                <sphereGeometry args={[0.28, 18, 14]} />
-                <meshStandardMaterial
-                    color={reversed ? '#6a5068' : '#d080b0'}
-                    emissive="#4a1438"
-                    emissiveIntensity={reversed ? 0.1 : 0.3}
-                    roughness={0.6}
-                />
-            </mesh>
-            <mesh position={[0, -0.55, 0.04]}>
-                <cylinderGeometry args={[0.07, 0.1, 0.45, 10]} />
+            <TissueOrgan
+                geometry={cerebellum}
+                color={reversed ? '#6a5068' : '#d183b2'}
+                crease={reversed ? '#3a2438' : '#9c4c7e'}
+                emissive="#4a1438"
+                glow={glow * 0.7}
+                fold={0.014}
+                position={[0, -0.23, -0.22]}
+            />
+            <mesh geometry={stem} position={[0, -0.18, -0.06]} raycast={() => null}>
                 <meshStandardMaterial color={reversed ? '#665577' : '#dd99ff'} roughness={0.5} />
             </mesh>
         </group>
@@ -307,88 +348,125 @@ function Brain({ reversed }) {
 
 function DigestiveSystem({ reversed }) {
     const gutRef = useRef();
-    const gut = useMemo(() => {
-        const pts = [];
-        for (let i = 0; i <= 48; i += 1) {
-            const t = i / 48;
-            const a = t * Math.PI * 5.5;
-            pts.push(new THREE.Vector3(
-                Math.cos(a) * (0.32 + t * 0.12),
-                -0.35 - t * 0.95,
-                0.28 + Math.sin(a) * 0.16,
-            ));
-        }
-        return new THREE.CatmullRomCurve3(pts);
-    }, []);
-    const stomach = useMemo(() => new THREE.SphereGeometry(0.26, 22, 16), []);
+    const liver = useMemo(() => buildLiver(), []);
+    const stomach = useMemo(() => buildStomach(), []);
+    const colon = useMemo(() => buildColon(), []);
+    const smallGut = useMemo(() => buildSmallIntestine(), []);
+
+    useEffect(() => () => {
+        liver.dispose();
+        stomach.dispose();
+        colon.dispose();
+        smallGut.dispose();
+    }, [liver, stomach, colon, smallGut]);
 
     useFrame((state) => {
         if (!gutRef.current) return;
-        gutRef.current.rotation.z = Math.sin(state.clock.elapsedTime * (reversed ? 0.5 : 1.2)) * 0.04;
+        // Перистальтика: кишечник слегка переминается, а не крутится
+        gutRef.current.rotation.z = Math.sin(state.clock.elapsedTime * (reversed ? 0.5 : 1.1)) * 0.025;
     });
 
     return (
-        <group ref={gutRef}>
+        <group>
+            <TissueOrgan
+                geometry={liver}
+                color={reversed ? '#4a2a22' : '#8f3a2c'}
+                crease={reversed ? '#2a1610' : '#5e2118'}
+                emissive={reversed ? '#150806' : '#33100a'}
+                glow={0.18}
+                fold={0.016}
+                position={ORGAN_AT.liver}
+                rotation={[0, 0, -0.12]}
+            />
             <TissueOrgan
                 geometry={stomach}
                 color={reversed ? '#5b4a2a' : '#d4a056'}
                 crease={reversed ? '#2a2010' : '#8a6030'}
                 emissive={reversed ? '#191000' : '#3d2104'}
                 glow={0.2}
-                fold={0.04}
-                scale={[1.15, 0.72, 0.7]}
-                position={[0.22, -0.12, 0.32]}
-                rotation={[0.1, 0, -0.35]}
+                fold={0.018}
+                position={ORGAN_AT.stomach}
             />
-            <mesh>
-                <tubeGeometry args={[gut, 64, reversed ? 0.04 : 0.055, 8, false]} />
-                <meshStandardMaterial
-                    color={reversed ? '#5b4a2a' : '#c48a3a'}
+            <group ref={gutRef} position={ORGAN_AT.gut}>
+                <TissueOrgan
+                    geometry={colon}
+                    color={reversed ? '#5b4a2a' : '#c9945a'}
+                    crease={reversed ? '#2a2010' : '#8a6030'}
                     emissive={reversed ? '#191000' : '#3d2104'}
-                    emissiveIntensity={0.2}
-                    roughness={0.7}
+                    glow={0.16}
+                    fold={0.01}
                 />
-            </mesh>
+                <TissueOrgan
+                    geometry={smallGut}
+                    color={reversed ? '#54452a' : '#d8a06a'}
+                    crease={reversed ? '#261d10' : '#95653a'}
+                    emissive={reversed ? '#150d00' : '#33200a'}
+                    glow={0.14}
+                    fold={0.008}
+                />
+            </group>
         </group>
     );
 }
 
+
+/**
+ * Сосуды. Прежние кривые были написаны под старую модель и пересчитывались
+ * общим множителем — на новой фигуре они выходили за обводы: артерии рук шли
+ * по воздуху рядом с рукой, а не внутри неё. Здесь всё задано сразу в
+ * координатах фигуры и лежит внутри туловища и конечностей.
+ */
 function Circulation({ reversed }) {
     const arterial = useMemo(() => makeCurve([
-        [0.08, 0.95, 0.42],
-        [0.05, 1.45, 0.22],
-        [0, 2.05, 0.12],
-        [0, 2.35, 0.1],
+        [-0.02, 1.70, -0.12],
+        [-0.02, 2.05, -0.08],
+        [0.00, 2.38, -0.04],
+        [0.00, 2.66, -0.02],
     ]), []);
+    // Точек намеренно много: на редкой сетке сплайн выносило за обвод плеча,
+    // и артерия шла по воздуху рядом с рукой
     const leftArm = useMemo(() => makeCurve([
-        [0.05, 1.35, 0.22],
-        [-0.55, 1.15, 0.18],
-        [-1.15, 0.35, 0.08],
-        [-1.35, -0.55, 0.02],
+        [-0.10, 2.28, -0.02],
+        [-0.45, 2.22, 0.00],
+        [-0.72, 2.06, 0.01],
+        [-0.90, 1.72, 0.02],
+        [-1.00, 1.22, 0.02],
+        [-1.09, 0.62, 0.02],
+        [-1.15, 0.08, 0.03],
+        [-1.18, -0.30, 0.03],
     ]), []);
     const rightArm = useMemo(() => makeCurve([
-        [0.05, 1.35, 0.22],
-        [0.55, 1.15, 0.18],
-        [1.15, 0.35, 0.08],
-        [1.35, -0.55, 0.02],
+        [0.10, 2.28, -0.02],
+        [0.45, 2.22, 0.00],
+        [0.72, 2.06, 0.01],
+        [0.90, 1.72, 0.02],
+        [1.00, 1.22, 0.02],
+        [1.09, 0.62, 0.02],
+        [1.15, 0.08, 0.03],
+        [1.18, -0.30, 0.03],
     ]), []);
     const leftLeg = useMemo(() => makeCurve([
-        [-0.04, -0.85, 0.12],
-        [-0.22, -1.55, 0.08],
-        [-0.32, -2.45, 0.04],
-        [-0.28, -3.15, 0.02],
+        [-0.02, 0.30, -0.04],
+        [-0.22, 0.05, -0.02],
+        [-0.34, -0.80, 0.00],
+        [-0.37, -1.70, 0.00],
+        [-0.36, -2.60, 0.00],
+        [-0.36, -3.30, -0.01],
     ]), []);
     const rightLeg = useMemo(() => makeCurve([
-        [-0.04, -0.85, 0.12],
-        [0.22, -1.55, 0.08],
-        [0.32, -2.45, 0.04],
-        [0.28, -3.15, 0.02],
+        [0.02, 0.30, -0.04],
+        [0.22, 0.05, -0.02],
+        [0.34, -0.80, 0.00],
+        [0.37, -1.70, 0.00],
+        [0.36, -2.60, 0.00],
+        [0.36, -3.30, -0.01],
     ]), []);
+    // Венозный возврат: от таза к сердцу, чуть правее и спереди от аорты
     const venous = useMemo(() => makeCurve([
-        [0.18, -0.2, 0.35],
-        [0.28, 0.55, 0.3],
-        [0.12, 1.15, 0.32],
-        [0.08, 0.95, 0.42],
+        [0.10, 0.20, 0.02],
+        [0.12, 0.80, 0.02],
+        [0.10, 1.40, 0.02],
+        [0.04, 1.78, 0.06],
     ]), []);
 
     const vesselColor = reversed ? '#773333' : '#ff243f';
@@ -680,20 +758,8 @@ function BodyRegions() {
 }
 
 /**
- * Органы авторились под прежнюю модель ростом ≈ 6 единиц (стопы на -3.15) и
- * пересчитываются под новую фигуру двумя разными преобразованиями.
- *
- * Сосуды тянутся от шеи до стоп, поэтому их растягивают по росту. Отдельные
- * органы по той же шкале раздувались до размера туловища: у них своя, меньшая
- * шкала и свой сдвиг — чтобы мозг попал в череп, а не повис над макушкой.
- */
-const VESSEL_FIT = { scale: 1.23, offsetY: 0.22 };
-const ORGAN_FIT = { scale: 0.97, offsetY: 1.13 };
-
-/**
- * Позвоночник. Единственный орган, построенный сразу в координатах фигуры:
- * область «Позвоночник» была, а столба в теле не было — камера заходила со
- * спины и показывала пустую оболочку.
+ * Позвоночник: область «Позвоночник» была, а столба в теле не было — камера
+ * заходила со спины и показывала пустую оболочку.
  */
 function Spine({ reversed }) {
     const curve = useMemo(() => makeCurve([
@@ -753,31 +819,18 @@ function OrganLayer({ reversedFactors }) {
 
     return (
         <group>
+            {/* Все органы построены сразу в координатах фигуры: пересчёт
+                общими множителями раздувал их до размера туловища и уводил
+                мозг выше макушки */}
             <Spine reversed={!!reversedFactors.posture} />
-            <group scale={VESSEL_FIT.scale} position={[0, VESSEL_FIT.offsetY, 0]}>
-                <Circulation reversed={circulationReversed} />
-            </group>
-            <group scale={ORGAN_FIT.scale} position={[0, ORGAN_FIT.offsetY, 0]}>
-                {/* Доводка по органам: общий пересчёт ставит их в правильную
-                    треть тела, но каждый был нарисован «крупным планом» и
-                    внутри грудной клетки выглядел больше самой клетки */}
-                <group position={[0, 0.2, 0]} scale={0.84}>
-                    <Heart reversed={circulationReversed} />
-                </group>
-                <group position={[0, 0.03, 0]} scale={0.8}>
-                    <Lungs reversed={breathingReversed} />
-                </group>
-                <group position={[0, 0.42, 0]} scale={0.86}>
-                    <Brain reversed={cognitionReversed} />
-                </group>
-                <group position={[0, 0.5, 0]} scale={0.9}>
-                    <DigestiveSystem reversed={digestionReversed} />
-                </group>
-            </group>
+            <Circulation reversed={circulationReversed} />
+            <Heart reversed={circulationReversed} />
+            <Lungs reversed={breathingReversed} />
+            <Brain reversed={cognitionReversed} />
+            <DigestiveSystem reversed={digestionReversed} />
 
-            {/* Подписи органов вынесены из самих органов: каждый орган ещё и
-                масштабируется под фигуру, и подпись внутри него уезжала вместе
-                с ним — «ЛЁГКИЕ» оказывались над кишечником */}
+            {/* Подписи вынесены из самих органов: подпись внутри органа
+                уезжала вместе с ним — «ЛЁГКИЕ» оказывались над кишечником */}
             <Label position={[0, 3.62, 0.5]} region="head">МОЗГ</Label>
             <Label position={[0.62, 2.28, 0.5]} region="chest">СЕРДЦЕ</Label>
             <Label position={[-0.72, 2.12, 0.5]} region="chest">ЛЁГКИЕ</Label>
@@ -786,11 +839,15 @@ function OrganLayer({ reversedFactors }) {
     );
 }
 
+/**
+ * Слой эмоций писался под прежнюю модель ростом ≈ 6 единиц: кольцо факторов и
+ * аура разом подгоняются под новый рост фигуры одним преобразованием.
+ */
 function EmotionLayer({ reversedFactors }) {
     const emotionsReversed = !!reversedFactors.emotion;
 
     return (
-        <group scale={ORGAN_FIT.scale} position={[0, ORGAN_FIT.offsetY, 0]}>
+        <group scale={1.2} position={[0, 0.45, 0]}>
             <EmotionalAura reversed={emotionsReversed} />
             <FactorOrb position={[1.85, 1.85, 1.05]} factorId="emotion" label="ЭМОЦИЯ" reverseLabel="ОНЕМЕНИЕ" color="#d59a10" reverseColor="#8a8a8a" />
             <FactorOrb position={[-1.85, 1.85, 1.05]} factorId="stress" label="СТРЕСС" reverseLabel="ВОССТАНОВЛЕНИЕ" color="#d92d1c" reverseColor="#149c6c" />
