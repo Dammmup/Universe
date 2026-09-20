@@ -65,8 +65,8 @@ async function step(name, action, { flashAt, settle }) {
 await step('0-bang', () => wheel(), { flashAt: 3900, settle: 2600 });
 await step('1-dive', () => wheel(), { flashAt: 3200, settle: 3200 });
 await step('2-spin', () => wheel(), { flashAt: 1200, settle: 2600 });
-await step('3-matter', () => wheel(400), { flashAt: 1100, settle: 3000 });
-await step('4-flesh', () => page.evaluate(() => window.realityStore.getState().nextStage()), { flashAt: 1100, settle: 3200 });
+await step('3-flesh', () => wheel(400), { flashAt: 1100, settle: 3000 });
+await step('4-matter', () => page.evaluate(() => window.realityStore.getState().nextStage()), { flashAt: 1100, settle: 3200 });
 await step('5-origin', () => wheel(), { flashAt: 1300, settle: 3600 });
 await step('6-back', () => page.evaluate(() => window.realityStore.getState().prevStage()), { flashAt: 1100, settle: 3400 });
 

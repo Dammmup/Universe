@@ -26,15 +26,24 @@ const MicroCosmos = lazy(loadMicroCosmos);
 const HumanBody = lazy(loadHumanBody);
 const Finale = lazy(loadFinale);
 
+/**
+ * Порядок слоёв. Человек стоит перед клеткой: масштаб должен убывать
+ * монотонно, а прежний порядок «общество → клетка → человек» проваливал
+ * зрителя в микромир и возвращал обратно к телу.
+ */
+export const HUMAN_STAGE = 4;
+export const CELL_STAGE = 5;
+const FINALE_STAGE = 6;
+
 /** Заголовки слоёв: всплывают в момент перехода, пока кадр залит вуалью. */
 const STAGE_TITLES = {
     0: { kicker: 'Начало', title: 'Сингулярность' },
     1: { kicker: 'Макро-уровень', title: 'Космос' },
     2: { kicker: 'Мезо-уровень 1', title: 'Природа и стихии' },
     3: { kicker: 'Мезо-уровень 2', title: 'Общество' },
-    4: { kicker: 'Микро-уровень', title: 'Клетка и сознание' },
-    5: { kicker: 'Антропо-уровень', title: 'Человек' },
-    6: { kicker: 'Путь пройден', title: 'Итог' },
+    [HUMAN_STAGE]: { kicker: 'Антропо-уровень', title: 'Человек' },
+    [CELL_STAGE]: { kicker: 'Микро-уровень', title: 'Клетка и сознание' },
+    [FINALE_STAGE]: { kicker: 'Путь пройден', title: 'Итог' },
 };
 
 /**
@@ -87,7 +96,7 @@ function SceneBackground() {
     const current = useRef(new THREE.Color('#000000'));
 
     useEffect(() => {
-        target.current.set(stage === 5 ? '#e9edf4' : '#000000');
+        target.current.set(stage === HUMAN_STAGE ? '#e9edf4' : '#000000');
     }, [stage]);
 
     useEffect(() => {
@@ -106,10 +115,10 @@ function SceneBackground() {
 const STAGE_SHOTS = {
     0: { pos: [0, 0, 5], look: [0, 0, 0], fov: 60 },
     1: SHOTS.cosmos,
-    // Точка взгляда опущена ниже центра объекта: так клетка сидит выше в
-    // кадре, и нижние подписи не наезжают на строку интерфейса
-    4: { pos: [0, 1.2, 11.2], look: [0, -0.75, 0], fov: 58 },
-    5: BODY_OVERVIEW,
+    [HUMAN_STAGE]: BODY_OVERVIEW,
+    // Точка взгляда опущена ниже центра клетки: так она сидит выше в кадре,
+    // и нижние подписи не наезжают на строку интерфейса
+    [CELL_STAGE]: { pos: [0, 1.2, 11.2], look: [0, -0.75, 0], fov: 58 },
     // Финал: вся нить масштабов целиком в кадре
     6: { pos: [0, -0.1, 9.6], look: [0, 0.1, 0], fov: 46 },
 };
@@ -122,8 +131,8 @@ const STAGE_SHOTS = {
 const STAGE_ENTRIES = {
     0: [0, 0, 16],
     1: [0, 34, 120],
-    4: [0, 3.4, 30],
-    5: [0, 1.4, 24],
+    [HUMAN_STAGE]: [0, 1.4, 24],
+    [CELL_STAGE]: [0, 3.4, 30],
     6: [0, 1.2, 26],
 };
 
@@ -189,9 +198,14 @@ function JourneyCamera() {
     useEffect(() => {
         if (!shift) return undefined;
         const preset = veilPreset(shift.kind);
-        // Вниз по масштабу камера падает внутрь кадра, наверх — отрывается назад.
-        // Взрыв — единственное исключение: он сам расталкивает камеру от центра.
-        const inward = shift.kind === 'dive' || shift.kind === 'matter' || shift.kind === 'flesh';
+        // Вниз по масштабу камера падает внутрь кадра, наверх — отрывается
+        // назад. Направление берём из самого перехода, а не из типа вуали:
+        // одна и та же вуаль обслуживает оба направления между телом и
+        // клеткой. Взрыв — исключение, он сам расталкивает камеру от центра.
+        const target = shift.commit?.type === 'stage' ? shift.commit.to : null;
+        const inward = shift.kind === 'bang'
+            ? false
+            : (target === null || target > prevStage.current);
 
         const dir = new THREE.Vector3().subVectors(look.current, camera.position);
         const dist = dir.length();
@@ -456,7 +470,7 @@ export default function App() {
     }, []);
 
     return (
-        <div className={`relative w-screen h-screen overflow-hidden font-sans transition-colors duration-[1200ms] ${stage === 5 ? 'bg-[#e9edf4] text-slate-950' : 'bg-black text-white'}`}>
+        <div className={`relative w-screen h-screen overflow-hidden font-sans transition-colors duration-[1200ms] ${stage === HUMAN_STAGE ? 'bg-[#e9edf4] text-slate-950' : 'bg-black text-white'}`}>
 
             {/* 3D Canvas */}
             <div className="absolute inset-0">
@@ -480,15 +494,15 @@ export default function App() {
                             /* На теле облёт должен крутиться вокруг выбранной области.
                                С общей точкой [0,0,0] управление, перехватив камеру
                                после наезда, рывком уводило взгляд с головы в центр фигуры. */
-                            key={stage === 2 || stage === 3 ? 'planet' : (stage === 5 ? `body-${bodyRegion ?? 'all'}` : stage)}
+                            key={stage === 2 || stage === 3 ? 'planet' : (stage === HUMAN_STAGE ? `body-${bodyRegion ?? 'all'}` : stage)}
                             enableZoom
                             enablePan={false}
-                            zoomSpeed={stage === 4 ? 1.05 : (stage === 2 || stage === 3 ? 0.75 : 0.6)}
-                            minDistance={stage === 2 || stage === 3 ? 18 : stage === 4 ? 1.4 : (stage === 5 ? 1.6 : 5)}
-                            maxDistance={stage === 2 || stage === 3 ? 90 : stage === 4 ? 80 : (stage === 5 ? 26 : 200)}
+                            zoomSpeed={stage === CELL_STAGE ? 1.05 : (stage === 2 || stage === 3 ? 0.75 : 0.6)}
+                            minDistance={stage === 2 || stage === 3 ? 18 : stage === CELL_STAGE ? 1.4 : (stage === HUMAN_STAGE ? 1.6 : 5)}
+                            maxDistance={stage === 2 || stage === 3 ? 90 : stage === CELL_STAGE ? 80 : (stage === HUMAN_STAGE ? 26 : 200)}
                             dampingFactor={0.08}
                             enableDamping
-                            target={stage === 2 || stage === 3 ? [0, 0.4, 0] : (stage === 5 ? bodyLook : [0, 0, 0])}
+                            target={stage === 2 || stage === 3 ? [0, 0.4, 0] : (stage === HUMAN_STAGE ? bodyLook : [0, 0, 0])}
                             makeDefault
                         />
                     )}
@@ -504,8 +518,8 @@ export default function App() {
                         {stage === 0 && <BigBang />}
                         {(stage === 1 || approachingEarth) && <Cosmos />}
                         {(stage === 2 || stage === 3) && !approachingEarth && <Planet />}
-                        {stage === 4 && <MicroCosmos />}
-                        {stage === 5 && <HumanBody mode={humanLayer} />}
+                        {stage === HUMAN_STAGE && <HumanBody mode={humanLayer} />}
+                        {stage === CELL_STAGE && <MicroCosmos />}
                         {stage === 6 && <Finale />}
                     </Suspense>
 
@@ -515,9 +529,9 @@ export default function App() {
                     {/* На светлом антропо-уровне порог свечения поднят: иначе
                         сам фон проходит порог и размывает тело в молоко */}
                     <PostFX
-                        bloomStrength={stage === 5 ? 0.32 : 0.5}
-                        bloomThreshold={stage === 5 ? 1.15 : 0.85}
-                        vignette={stage === 5 ? 0.16 : 0.44}
+                        bloomStrength={stage === HUMAN_STAGE ? 0.32 : 0.5}
+                        bloomThreshold={stage === HUMAN_STAGE ? 1.15 : 0.85}
+                        vignette={stage === HUMAN_STAGE ? 0.16 : 0.44}
                     />
 
                 </Canvas>
@@ -539,7 +553,7 @@ export default function App() {
                 )}
             </div>
 
-            <Onboarding stage={stage} hidden={shifting || !!activeFactor} light={stage === 5} />
+            <Onboarding stage={stage} hidden={shifting || !!activeFactor} light={stage === HUMAN_STAGE} />
 
             {/* UI Overlay */}
             <div className={`absolute bottom-10 w-full text-center pointer-events-none data-ui transition-opacity duration-500 ${shifting ? 'opacity-0' : 'opacity-100'}`}>
@@ -573,26 +587,26 @@ export default function App() {
                         <p className="tracking-widest uppercase text-sm mb-2 text-yellow-500">
                             Мезо-уровень 2: Общество и Цивилизация
                         </p>
-                        <p className="text-xs text-white/40">Вращай планету, кликай на факторы. Скролль дальше — в микромир.</p>
+                        <p className="text-xs text-white/40">Вращай планету, кликай на факторы. Скролль дальше — к человеку.</p>
                     </div>
                 )}
-                {stage === 4 && (
+                {stage === CELL_STAGE && (
                     <div className="text-white/70 animate-fade-in relative z-50 pointer-events-auto">
                         <p className="tracking-widest uppercase text-sm mb-2 text-fuchsia-400">
                             Микро-уровень: Рождение Сознания
                         </p>
                         <p className="text-xs text-white/40 mb-4 font-light">
-                            Внутри клеток и синапсов. Скролль дальше — к человеку. Ctrl + колесо приближает.
+                            Внутри клеток и синапсов. Скролль дальше — к итогу пути. Ctrl + колесо приближает.
                         </p>
                         <button
                             onClick={nextStage}
                             className="px-5 py-2 border border-fuchsia-300/40 rounded-full text-xs uppercase tracking-wider text-fuchsia-100 hover:bg-fuchsia-300 hover:text-black transition-colors"
                         >
-                            К человеку
+                            К итогу
                         </button>
                     </div>
                 )}
-                {stage === 5 && (
+                {stage === HUMAN_STAGE && (
                     <div className="text-slate-700 animate-fade-in relative z-50 pointer-events-auto">
                         <p className="tracking-widest uppercase text-sm mb-2 text-rose-600">
                             {activeRegion
@@ -643,10 +657,10 @@ export default function App() {
                                 Эмоции
                             </button>
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-1">Скролль дальше — к итогу пути.</p>
+                        <p className="text-[11px] text-slate-400 mt-1">Скролль дальше — в клетку.</p>
                     </div>
                 )}
-                {stage === 6 && (
+                {stage === FINALE_STAGE && (
                     <div className="animate-fade-in relative z-50 pointer-events-auto max-w-xl mx-auto px-6">
                         <p className="tracking-[0.45em] uppercase text-[10px] mb-4 text-white/35">
                             Путь пройден
