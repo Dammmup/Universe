@@ -11,6 +11,7 @@ import {
 import { greatCircleArc, latLonToVec3, seededRandom, surfaceQuaternion } from '../../lib/geo';
 
 const DEG = Math.PI / 180;
+const skipRaycast = () => {};
 
 function lonStretchAt(lat) {
     return 1 / Math.max(0.2, Math.cos(lat * DEG));
@@ -157,11 +158,11 @@ function Mountains({ radius, quaking }) {
 
     return (
         <group>
-            <instancedMesh ref={rockRef} args={[undefined, undefined, peaks.length]} frustumCulled={false}>
+            <instancedMesh ref={rockRef} args={[undefined, undefined, peaks.length]} frustumCulled={false} raycast={skipRaycast}>
                 <coneGeometry args={[1, 1, 6]} />
                 <meshStandardMaterial roughness={0.92} metalness={0.05} flatShading />
             </instancedMesh>
-            <instancedMesh ref={snowRef} args={[undefined, undefined, Math.max(1, snowPeaks.length)]} frustumCulled={false}>
+            <instancedMesh ref={snowRef} args={[undefined, undefined, Math.max(1, snowPeaks.length)]} frustumCulled={false} raycast={skipRaycast}>
                 <coneGeometry args={[1, 1, 6]} />
                 <meshStandardMaterial color="#eaf4ff" roughness={0.35} metalness={0} flatShading />
             </instancedMesh>
@@ -229,11 +230,11 @@ function Forests({ radius, withering }) {
 
     return (
         <group>
-            <instancedMesh ref={crownRef} args={[undefined, undefined, trees.length]} frustumCulled={false}>
+            <instancedMesh ref={crownRef} args={[undefined, undefined, trees.length]} frustumCulled={false} raycast={skipRaycast}>
                 <coneGeometry args={[0.04, 0.115, 5]} />
                 <meshStandardMaterial roughness={0.85} flatShading />
             </instancedMesh>
-            <instancedMesh ref={trunkRef} args={[undefined, undefined, trees.length]} frustumCulled={false}>
+            <instancedMesh ref={trunkRef} args={[undefined, undefined, trees.length]} frustumCulled={false} raycast={skipRaycast}>
                 <cylinderGeometry args={[0.008, 0.012, 0.055, 4]} />
                 <meshStandardMaterial color="#5a4227" roughness={0.95} />
             </instancedMesh>
@@ -283,7 +284,7 @@ function Wildlife({ radius, extinct }) {
     });
 
     return (
-        <instancedMesh ref={meshRef} args={[undefined, undefined, animals.length]} frustumCulled={false}>
+        <instancedMesh ref={meshRef} args={[undefined, undefined, animals.length]} frustumCulled={false} raycast={skipRaycast}>
             <sphereGeometry args={[1, 8, 6]} />
             <meshStandardMaterial roughness={0.8} />
         </instancedMesh>
@@ -371,7 +372,7 @@ function Migration({ radius, scattered }) {
                     blending={THREE.AdditiveBlending}
                 />
             </lineSegments>
-            <instancedMesh ref={meshRef} args={[undefined, undefined, total]} frustumCulled={false}>
+            <instancedMesh ref={meshRef} args={[undefined, undefined, total]} frustumCulled={false} raycast={skipRaycast}>
                 <sphereGeometry args={[1, 6, 4]} />
                 <meshBasicMaterial color="#eef7ff" />
             </instancedMesh>

@@ -15,8 +15,8 @@ const STAGES = [
     { stage: 1, name: '1-cosmos', settle: 6000 },
     { stage: 2, name: '2-nature', settle: 6000 },
     { stage: 3, name: '3-civilisation', settle: 6000 },
-    { stage: 4, name: '4-microcosmos', settle: 3500 },
-    { stage: 5, name: '5-human', settle: 4000 },
+    { stage: 4, name: '4-human', settle: 4000 },
+    { stage: 5, name: '5-microcosmos', settle: 3500 },
 ];
 
 mkdirSync(OUT, { recursive: true });

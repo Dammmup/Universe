@@ -6,6 +6,7 @@ import { CITIES, LABELLED_CITIES, TRADE_ROUTES, findCity } from '../../data/geog
 import { greatCircleArc, latLonToVec3, seededRandom, surfaceQuaternion } from '../../lib/geo';
 
 const DEG = Math.PI / 180;
+const skipRaycast = () => {};
 
 /** Освобождает геометрию, созданную вручную, при размонтировании слоя. */
 function useDisposable(resource) {
@@ -142,11 +143,11 @@ function CityBlocks({ radius, decayed, ruined, nightLights }) {
 
     return (
         <group>
-            <instancedMesh ref={bodyRef} args={[undefined, undefined, blocks.length]} frustumCulled={false}>
+            <instancedMesh ref={bodyRef} args={[undefined, undefined, blocks.length]} frustumCulled={false} raycast={skipRaycast}>
                 <boxGeometry args={[1, 1, 1]} />
                 <meshStandardMaterial roughness={0.55} metalness={0.35} />
             </instancedMesh>
-            <instancedMesh ref={glowRef} args={[undefined, undefined, blocks.length]} frustumCulled={false}>
+            <instancedMesh ref={glowRef} args={[undefined, undefined, blocks.length]} frustumCulled={false} raycast={skipRaycast}>
                 <boxGeometry args={[1, 1, 1]} />
                 <meshBasicMaterial
                     color="#ffd9a0"

@@ -262,13 +262,15 @@ function SunCorona({ dimmed }) {
 
     useFrame((state) => {
         const t = state.clock.elapsedTime;
+        // Лучи держим на пределе видимости: яркими они читались схемой
+        // «солнце из учебника», а не структурой короны
         if (innerRef.current) {
             innerRef.current.rotation.z = t * 0.12;
-            innerRef.current.material.opacity = (dimmed ? 0.08 : 0.3) + Math.sin(t * 2.1) * 0.08;
+            innerRef.current.material.opacity = (dimmed ? 0.03 : 0.1) + Math.sin(t * 2.1) * 0.03;
         }
         if (outerRef.current) {
             outerRef.current.rotation.z = -t * 0.07;
-            outerRef.current.material.opacity = (dimmed ? 0.03 : 0.15) + Math.sin(t * 1.4 + 1) * 0.05;
+            outerRef.current.material.opacity = (dimmed ? 0.015 : 0.06) + Math.sin(t * 1.4 + 1) * 0.02;
         }
     });
 
@@ -280,13 +282,13 @@ function SunCorona({ dimmed }) {
                 <bufferGeometry>
                     <bufferAttribute attach="attributes-position" args={[rays1, 3]} />
                 </bufferGeometry>
-                <lineBasicMaterial color={rayColor} transparent opacity={0.45} depthWrite={false} blending={THREE.AdditiveBlending} />
+                <lineBasicMaterial color={rayColor} transparent opacity={0.14} depthWrite={false} blending={THREE.AdditiveBlending} />
             </lineSegments>
             <lineSegments ref={outerRef}>
                 <bufferGeometry>
                     <bufferAttribute attach="attributes-position" args={[rays2, 3]} />
                 </bufferGeometry>
-                <lineBasicMaterial color={rayColor} transparent opacity={0.22} depthWrite={false} blending={THREE.AdditiveBlending} />
+                <lineBasicMaterial color={rayColor} transparent opacity={0.08} depthWrite={false} blending={THREE.AdditiveBlending} />
             </lineSegments>
         </group>
     );
@@ -296,11 +298,13 @@ function Sun({ dimmed, onSelect }) {
     const glowRef = useRef();
     const surfaceRef = useRef();
     const tex = useMemo(() => sunTexture(), []);
+    const glowTex = useMemo(() => circleSprite(), []);
 
     useFrame((state) => {
         const t = state.clock.elapsedTime;
         if (glowRef.current) {
-            glowRef.current.scale.setScalar(1 + Math.sin(t * 1.3) * (dimmed ? 0.02 : 0.06));
+            const breath = 11 * (1 + Math.sin(t * 1.3) * (dimmed ? 0.02 : 0.06));
+            glowRef.current.scale.set(breath, breath, 1);
         }
         if (surfaceRef.current) {
             surfaceRef.current.rotation.y += 0.0008;
@@ -319,33 +323,49 @@ function Sun({ dimmed, onSelect }) {
                 <meshBasicMaterial map={tex} color={dimmed ? '#b04a12' : '#ffffff'} />
             </mesh>
 
-            <mesh ref={glowRef}>
-                <sphereGeometry args={[5.2, 32, 24]} />
-                <meshBasicMaterial
-                    color={dimmed ? '#661100' : '#ff9900'}
+            {/* Корона — спрайты с радиальным спадом, а не сферы. Сфера с
+                постоянным цветом даёт ровный диск с резкой границей: вокруг
+                звезды повисал плоский оранжевый круг вместо свечения. */}
+            <sprite ref={glowRef} scale={[11, 11, 1]}>
+                <spriteMaterial
+                    map={glowTex}
+                    color={dimmed ? '#8a2a05' : '#ffb03c'}
                     transparent
-                    opacity={0.18}
+                    opacity={dimmed ? 0.3 : 0.55}
                     depthWrite={false}
+                    toneMapped={false}
                     blending={THREE.AdditiveBlending}
                 />
-            </mesh>
-            <mesh>
-                <sphereGeometry args={[7.4, 24, 18]} />
-                <meshBasicMaterial
-                    color={dimmed ? '#330800' : '#ff5500'}
+            </sprite>
+            <sprite scale={[18, 18, 1]}>
+                <spriteMaterial
+                    map={glowTex}
+                    color={dimmed ? '#4a1200' : '#ff7a1e'}
                     transparent
-                    opacity={0.07}
+                    opacity={dimmed ? 0.06 : 0.16}
                     depthWrite={false}
+                    toneMapped={false}
                     blending={THREE.AdditiveBlending}
                 />
-            </mesh>
+            </sprite>
+            <sprite scale={[30, 30, 1]}>
+                <spriteMaterial
+                    map={glowTex}
+                    color={dimmed ? '#2a0a00' : '#ff5a10'}
+                    transparent
+                    opacity={dimmed ? 0.02 : 0.05}
+                    depthWrite={false}
+                    toneMapped={false}
+                    blending={THREE.AdditiveBlending}
+                />
+            </sprite>
 
             <SolarProminences dimmed={dimmed} />
             <SunCorona dimmed={dimmed} />
 
             <BillboardText
                 position={[0, 7.2, 0]}
-                fontSize={1.2}
+                fontSize={0.7}
                 color={dimmed ? '#dd6633' : '#ffcc00'}
                 anchorX="center"
                 anchorY="bottom"
@@ -448,7 +468,7 @@ function SolarWind({ shielded, onSelect }) {
             </points>
             <BillboardText
                 position={[0, -10.4, 0]}
-                fontSize={0.8}
+                fontSize={0.5}
                 color={shielded ? '#9bb0cc' : '#fff1a0'}
                 anchorX="center"
                 anchorY="top"
@@ -464,25 +484,115 @@ function SolarWind({ shielded, onSelect }) {
 // ПЛАНЕТЫ
 // ═══════════════════════════════════════════════════════════
 
-function OrbitRing({ rx, rz, color = '#ffffff', opacity = 0.12 }) {
-    const points = useMemo(() => {
-        const arr = new Float32Array(129 * 3);
-        for (let i = 0; i <= 128; i += 1) {
-            const angle = (i / 128) * Math.PI * 2;
-            arr[i * 3] = Math.cos(angle) * rx;
-            arr[i * 3 + 1] = 0;
-            arr[i * 3 + 2] = Math.sin(angle) * rz;
+const ARCS_PER_RING = 16;
+const STEPS_PER_ARC = 9;
+const INTACT_COLOR = new THREE.Color();
+const BROKEN_COLOR = new THREE.Color('#ff5a33');
+
+/**
+ * Орбита. Кольцо нарезано на дуги, которые в целом состоянии стыкуются
+ * концами и читаются непрерывной линией.
+ *
+ * При реверсе гравитации орбита не просто гаснет: дуги отрываются одна за
+ * другой, уходят наружу и кувыркаются вокруг собственного центра. Порядок
+ * отрыва задан лагом на каждую дугу, поэтому кольцо рвётся, а не расходится
+ * целиком — держать материю больше нечему.
+ */
+function OrbitRing({ rx, rz, color = '#ffffff', opacity = 0.12, broken = false }) {
+    const geometryRef = useRef();
+    const materialRef = useRef();
+    const progress = useRef(0);
+
+    // Пары точек для lineSegments: каждая дуга — своя цепочка отрезков
+    const { positions, arcs } = useMemo(() => {
+        const rand = seededRandom(Math.round(rx * 977) ^ 0x51ce);
+        const pairs = ARCS_PER_RING * (STEPS_PER_ARC - 1) * 2;
+        const buffer = new Float32Array(pairs * 3);
+        const list = [];
+        let cursor = 0;
+
+        for (let a = 0; a < ARCS_PER_RING; a += 1) {
+            const from = (a / ARCS_PER_RING) * Math.PI * 2;
+            const to = ((a + 1) / ARCS_PER_RING) * Math.PI * 2;
+            const points = [];
+            for (let s = 0; s < STEPS_PER_ARC; s += 1) {
+                const angle = from + (to - from) * (s / (STEPS_PER_ARC - 1));
+                points.push(new THREE.Vector3(Math.cos(angle) * rx, 0, Math.sin(angle) * rz));
+            }
+
+            const mid = (from + to) * 0.5;
+            const centre = new THREE.Vector3(Math.cos(mid) * rx, 0, Math.sin(mid) * rz);
+            list.push({
+                points,
+                centre,
+                start: cursor,
+                // Наружу от центра системы плюс вертикальный увод
+                drift: new THREE.Vector3(Math.cos(mid), (rand() - 0.5) * 1.2, Math.sin(mid))
+                    .normalize()
+                    .multiplyScalar(rx * (0.16 + rand() * 0.4)),
+                axis: new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5).normalize(),
+                spin: (rand() - 0.5) * 3.2,
+                lag: rand() * 0.55,
+            });
+            cursor += (STEPS_PER_ARC - 1) * 2;
         }
-        return arr;
+
+        return { positions: buffer, arcs: list };
     }, [rx, rz]);
 
+    const scratch = useMemo(() => new THREE.Vector3(), []);
+
+    useFrame((_, delta) => {
+        const target = broken ? 1 : 0;
+        const ease = Math.min(1, delta * (broken ? 0.55 : 1.3));
+        progress.current += (target - progress.current) * ease;
+        const p = progress.current;
+
+        const attribute = geometryRef.current?.attributes.position;
+        if (!attribute) return;
+
+        // Целое кольцо не пересчитываем каждый кадр: оно неподвижно
+        if (p < 0.0005 && attribute.__settled) return;
+        attribute.__settled = p < 0.0005;
+
+        const array = attribute.array;
+        for (let a = 0; a < arcs.length; a += 1) {
+            const arc = arcs[a];
+            const local = Math.max(0, (p - arc.lag) / Math.max(0.05, 1 - arc.lag));
+            const angle = local * arc.spin;
+            let write = arc.start * 3;
+
+            for (let s = 0; s < STEPS_PER_ARC - 1; s += 1) {
+                for (let end = 0; end < 2; end += 1) {
+                    const point = arc.points[s + end];
+                    scratch.subVectors(point, arc.centre);
+                    if (local > 0) scratch.applyAxisAngle(arc.axis, angle);
+                    array[write] = arc.centre.x + scratch.x + arc.drift.x * local;
+                    array[write + 1] = arc.centre.y + scratch.y + arc.drift.y * local;
+                    array[write + 2] = arc.centre.z + scratch.z + arc.drift.z * local;
+                    write += 3;
+                }
+            }
+        }
+        attribute.needsUpdate = true;
+
+        const material = materialRef.current;
+        if (material) {
+            // Осколки ярче целой орбиты: это высвободившаяся материя,
+            // а прежнее затухание делало распад почти невидимым
+            material.opacity = opacity * (1 + p * 1.6);
+            INTACT_COLOR.set(color);
+            material.color.copy(INTACT_COLOR).lerp(BROKEN_COLOR, p * 0.8);
+        }
+    });
+
     return (
-        <line>
-            <bufferGeometry>
-                <bufferAttribute attach="attributes-position" args={[points, 3]} />
+        <lineSegments raycast={() => null}>
+            <bufferGeometry ref={geometryRef}>
+                <bufferAttribute attach="attributes-position" args={[positions, 3]} />
             </bufferGeometry>
-            <lineBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} />
-        </line>
+            <lineBasicMaterial ref={materialRef} color={color} transparent opacity={opacity} depthWrite={false} />
+        </lineSegments>
     );
 }
 
@@ -563,7 +673,7 @@ function OrbitingPlanet({
 
             <BillboardText
                 position={[0, radius + 0.85, 0]}
-                fontSize={Math.max(0.5, radius * 0.5)}
+                fontSize={Math.min(0.85, Math.max(0.32, radius * 0.3))}
                 color={labelColor}
                 anchorX="center"
                 anchorY="bottom"
@@ -573,7 +683,7 @@ function OrbitingPlanet({
             </BillboardText>
             <BillboardText
                 position={[0, radius + 0.35, 0]}
-                fontSize={Math.max(0.38, radius * 0.34)}
+                fontSize={Math.min(0.6, Math.max(0.24, radius * 0.2))}
                 color={reversed ? '#8fd0ff' : '#ffb066'}
                 anchorX="center"
                 anchorY="bottom"
@@ -752,7 +862,7 @@ function EarthSystem({ reversedFactors, onSelect }) {
 
             <BillboardText
                 position={[0, RADIUS + 1.5, 0]}
-                fontSize={0.75}
+                fontSize={0.46}
                 color="#ffffff"
                 anchorX="center"
                 anchorY="bottom"
@@ -894,7 +1004,7 @@ function Comet({ slowed, onSelect }) {
                 </mesh>
                 <BillboardText
                     position={[0, 2.4, 0]}
-                    fontSize={1.05}
+                    fontSize={0.62}
                     color={slowed ? '#aaddff' : '#ffffff'}
                     anchorX="center"
                     anchorY="bottom"
@@ -946,7 +1056,7 @@ function FloatingFactor({
             </mesh>
             <BillboardText
                 position={[0, 3, 0]}
-                fontSize={1.05}
+                fontSize={0.62}
                 color={tone}
                 anchorX="center"
                 anchorY="bottom"
@@ -965,6 +1075,9 @@ function FloatingFactor({
 export default function Cosmos() {
     const reversedFactors = useStore((s) => s.reversedFactors);
     const setActiveFactor = useStore((s) => s.setActiveFactor);
+
+    // Реверс гравитации рвёт орбиты всей системы, а не только земную
+    const antigravity = !!reversedFactors.gravity;
 
     const starTex = useMemo(() => starSprite(), []);
     const mercuryTex = useMemo(() => mercuryTexture(), []);
@@ -991,12 +1104,12 @@ export default function Cosmos() {
             <Sun dimmed={!!reversedFactors.sun} onSelect={setActiveFactor} />
             <SolarWind shielded={!!reversedFactors.radiation} onSelect={setActiveFactor} />
 
-            <OrbitRing rx={13} rz={9.5} color="#aaaaaa" opacity={0.14} />
-            <OrbitRing rx={18} rz={13} color="#e8c98a" opacity={0.13} />
-            <OrbitRing rx={25} rz={18} color="#4488ff" opacity={0.14} />
-            <OrbitRing rx={33} rz={24} color="#cc4422" opacity={0.13} />
-            <OrbitRing rx={48} rz={35} color="#c9a06a" opacity={0.11} />
-            <OrbitRing rx={64} rz={46} color="#e0d0a0" opacity={0.1} />
+            <OrbitRing rx={13} rz={9.5} color="#aaaaaa" opacity={0.14} broken={antigravity} />
+            <OrbitRing rx={18} rz={13} color="#e8c98a" opacity={0.13} broken={antigravity} />
+            <OrbitRing rx={25} rz={18} color="#4488ff" opacity={0.14} broken={antigravity} />
+            <OrbitRing rx={33} rz={24} color="#cc4422" opacity={0.13} broken={antigravity} />
+            <OrbitRing rx={48} rz={35} color="#c9a06a" opacity={0.11} broken={antigravity} />
+            <OrbitRing rx={64} rz={46} color="#e0d0a0" opacity={0.1} broken={antigravity} />
 
             <OrbitingPlanet
                 factorId="heating"

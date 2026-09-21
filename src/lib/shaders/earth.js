@@ -2,9 +2,12 @@
  * Шейдеры Земли. Освещение считается в мировых координатах, поэтому смена дня и
  * ночи корректно бежит по поверхности при любом повороте планеты.
  *
- * Цветовой пайплайн ручной: текстуры декодируются из sRGB в линейное пространство,
- * а на выходе возвращаются в sRGB. Так свет складывается физически правильно,
- * не завися от версии three.js и её встроенных include-чанков.
+ * Цветовой пайплайн: текстуры декодируются из sRGB в линейное пространство, свет
+ * складывается линейно, а обратное преобразование отдано чанку
+ * `colorspace_fragment`. Ручной linearToSrgb в конце годился, пока кадр шёл
+ * прямо на холст; с композером тот же кадр конвертировался второй раз в
+ * OutputPass — планета выцветала, а подсолнечная точка выгорала в белое пятно.
+ * Чанк же сам знает, куда идёт рендер: в буфер композера он ничего не делает.
  */
 
 const COLOR_UTILS = /* glsl */ `
@@ -96,10 +99,12 @@ void main() {
     float diffuse = max(dot(shadingN, uSunDir), 0.0);
     float terminator = smoothstep(-0.20, 0.24, dot(N, uSunDir));
 
-    // Солнечная дорожка на воде
+    // Солнечная дорожка на воде. Показатель высокий, а вклад скромный: на
+    // снимках из космоса блик — компактное пятно с искрой, а не световой диск
+    // в четверть планеты.
     vec3 V = normalize(cameraPosition - vPosW);
     vec3 H = normalize(uSunDir + V);
-    float glint = pow(max(dot(waterN, H), 0.0), 58.0) * water * terminator;
+    float glint = pow(max(dot(waterN, H), 0.0), 140.0) * water * terminator;
 
     // Прибой: береговая линия ищется как перепад маски воды между соседними точками
     float shore = 0.0;
@@ -107,16 +112,18 @@ void main() {
         vec2 step = vec2(0.0022, 0.0044);
         float wx = texture2D(uWaterMask, vUv + vec2(step.x, 0.0)).r;
         float wy = texture2D(uWaterMask, vUv + vec2(0.0, step.y)).r;
-        shore = clamp((abs(rawWater - wx) + abs(rawWater - wy)) * 1.6, 0.0, 1.0);
+        shore = clamp((abs(rawWater - wx) + abs(rawWater - wy)) * 1.1, 0.0, 1.0);
     }
     float foam = shore * (0.6 + 0.4 * sin(t * 2.0 + vUv.x * 90.0 + vUv.y * 60.0)) * uFoam;
 
     // Ночная сторона подсвечена холодным «лунным» тоном, иначе тёплый ambient
     // делает ночные континенты похожими на выцветшую пустыню
     vec3 ambientTint = mix(vec3(0.30, 0.42, 0.72), vec3(1.0), terminator);
-    vec3 lit = albedo * (uAmbient * ambientTint + diffuse * 1.15);
-    lit += vec3(1.0, 0.94, 0.80) * glint * 1.6;
-    lit += vec3(0.72, 0.88, 1.0) * foam * 0.55 * terminator;
+    vec3 lit = albedo * (uAmbient * ambientTint + diffuse * 1.05);
+    lit += vec3(1.0, 0.94, 0.80) * glint * 0.75;
+    // Прибой подсвечивает берег, а не обводит континенты белым контуром:
+    // в линейном пространстве прежние 0.55 давали карту с нарисованной каймой
+    lit += vec3(0.72, 0.88, 1.0) * foam * 0.16 * terminator;
 
     // Огни городов проступают только на неосвещённой стороне.
     // Тёмно-синий фон карты Black Marble отсекается по яркости, чтобы не светился океан.
@@ -125,7 +132,8 @@ void main() {
     vec3 cityLights = nightTex * smoothstep(0.02, 0.14, lum);
     lit += cityLights * (1.0 - terminator) * uNightGlow * (1.0 - water * 0.8);
 
-    gl_FragColor = vec4(linearToSrgb(lit), 1.0);
+    gl_FragColor = vec4(lit, 1.0);
+    #include <colorspace_fragment>
 }
 `;
 
@@ -141,6 +149,8 @@ void main() {
 `;
 
 export const cloudsFragment = /* glsl */ `
+${COLOR_UTILS}
+
 uniform sampler2D uCloudMap;
 uniform vec3 uSunDir;
 uniform float uTime;
@@ -162,10 +172,15 @@ void main() {
 
     float light = max(dot(normalize(vNormalW), uSunDir), 0.0);
     float terminator = smoothstep(-0.25, 0.30, dot(normalize(vNormalW), uSunDir));
-    vec3 tint = mix(vec3(0.09, 0.12, 0.20), vec3(1.0), 0.15 + light * 0.9);
+
+    // Облако в подсолнечной точке не белее белого: при коэффициенте выше
+    // единицы свечение раздувало подсолнечную точку в засвеченное пятно
+    // на четверть диска.
+    vec3 tint = mix(vec3(0.09, 0.12, 0.20), vec3(0.97, 0.97, 1.0), 0.12 + light * 0.8);
     tint = mix(tint, vec3(1.0, 0.82, 0.62), (1.0 - terminator) * light * 0.5);
 
-    gl_FragColor = vec4(tint, coverage * uOpacity);
+    gl_FragColor = vec4(srgbToLinear(tint), coverage * uOpacity);
+    #include <colorspace_fragment>
 }
 `;
 
@@ -205,5 +220,6 @@ void main() {
 
     float glow = rim * (0.18 + sun * 1.05) * uIntensity;
     gl_FragColor = vec4(color * glow, glow);
+    #include <colorspace_fragment>
 }
 `;
