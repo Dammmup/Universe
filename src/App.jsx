@@ -137,6 +137,25 @@ const STAGE_ENTRIES = {
 };
 
 /**
+ * Кадры сняты под широкий экран. На вертикальном телефоне тот же угол по
+ * вертикали даёт втрое меньший охват по горизонтали: планета, подписи слоёв и
+ * фигура целиком уходили за края. Поле зрения расширяется так, чтобы
+ * горизонтальный охват остался прежним, с потолком против рыбьего глаза.
+ */
+const DESIGN_ASPECT = 1.6;
+const MAX_FOV = 84;
+
+function fovForAspect(fov, aspect) {
+    if (!aspect || aspect >= DESIGN_ASPECT) return fov;
+    const half = THREE.MathUtils.degToRad(fov * 0.5);
+    // Компенсируем не всю разницу, а её корень. Полная компенсация сохраняет
+    // горизонтальный охват буквально — и раздувает угол так, что фигура
+    // съёживается в точку посреди пустого вертикального кадра.
+    const widened = Math.atan(Math.tan(half) * Math.sqrt(DESIGN_ASPECT / aspect));
+    return Math.min(MAX_FOV, THREE.MathUtils.radToDeg(widened) * 2);
+}
+
+/**
  * Киношный путь камеры.
  * 1→2: пролёт к Земле в Солнечной системе, затем наезд до портрета планеты.
  * 2→3: камера стоит, Земля поворачивается к городам.
@@ -157,7 +176,10 @@ function JourneyCamera() {
     const aimLookAt = useRef(true);
     const unlockTimer = useRef(null);
 
+    const shotFov = useRef(60);
+
     const tweenTo = useCallback((shot, duration, ease = 'power2.inOut', keepAim = true) => {
+        shotFov.current = shot.fov;
         gsap.killTweensOf(camera.position);
         gsap.killTweensOf(camera);
         gsap.killTweensOf(look.current);
@@ -183,7 +205,7 @@ function JourneyCamera() {
         });
         gsap.to(look.current, { x: shot.look[0], y: shot.look[1], z: shot.look[2], duration, ease });
         gsap.to(camera, {
-            fov: shot.fov,
+            fov: fovForAspect(shot.fov, camera.aspect),
             duration,
             ease,
             onUpdate: () => camera.updateProjectionMatrix(),
@@ -264,7 +286,7 @@ function JourneyCamera() {
                 ease: 'power2.inOut',
             });
             gsap.to(camera, {
-                fov: 40,
+                fov: fovForAspect(40, camera.aspect),
                 duration: 2.6,
                 ease: 'power2.in',
                 onUpdate: () => camera.updateProjectionMatrix(),
@@ -278,7 +300,7 @@ function JourneyCamera() {
         if (wasApproaching && !approaching && stage === 2) {
             camera.position.set(...SHOTS.fromSpace.pos);
             look.current.set(...SHOTS.fromSpace.look);
-            camera.fov = SHOTS.fromSpace.fov;
+            camera.fov = fovForAspect(SHOTS.fromSpace.fov, camera.aspect);
             camera.updateProjectionMatrix();
             tweenTo(SHOTS.earth, Math.max(arrival, 2.0), 'power2.out', false);
             return undefined;
@@ -294,7 +316,7 @@ function JourneyCamera() {
         if ((stage === 2 || stage === 3) && from !== 2 && from !== 3 && !approaching) {
             camera.position.set(...SHOTS.fromSpace.pos);
             look.current.set(...SHOTS.fromSpace.look);
-            camera.fov = SHOTS.fromSpace.fov;
+            camera.fov = fovForAspect(SHOTS.fromSpace.fov, camera.aspect);
             camera.updateProjectionMatrix();
             tweenTo(SHOTS.earth, Math.max(arrival, 2.0), 'power2.out', false);
             return undefined;
@@ -308,7 +330,7 @@ function JourneyCamera() {
             // Под вуалью ставим камеру в точку въезда — зритель этого не видит
             camera.position.set(...entry);
             look.current.set(...shot.look);
-            camera.fov = Math.min(shot.fov + 12, 85);
+            camera.fov = fovForAspect(Math.min(shot.fov + 12, 85), camera.aspect);
             camera.updateProjectionMatrix();
         }
 
@@ -329,6 +351,13 @@ function JourneyCamera() {
         tweenTo(region ? region.shot : BODY_OVERVIEW, region ? 1.5 : 1.7, 'power2.inOut', false);
         return undefined;
     }, [bodyRegion, stage, tweenTo]);
+
+    // Поворот телефона меняет соотношение сторон, а значит и нужный угол
+    const viewport = useThree((s) => s.size);
+    useEffect(() => {
+        camera.fov = fovForAspect(shotFov.current, camera.aspect);
+        camera.updateProjectionMatrix();
+    }, [viewport, camera]);
 
     useFrame(() => {
         if (aimLookAt.current) camera.lookAt(look.current);
@@ -359,6 +388,12 @@ export default function App() {
     const reversedCount = useStore(
         (s) => Object.values(s.reversedFactors).filter(Boolean).length,
     );
+
+    // Сенсорный экран меняет и управление, и формулировки подсказок: «скролль»
+    // и «наведи курсор» на телефоне ничего не значат
+    const [isTouch] = useState(() => (typeof window === 'undefined'
+        ? false
+        : (window.matchMedia?.('(pointer: coarse)').matches ?? 'ontouchstart' in window)));
 
     const [humanLayer, setHumanLayer] = useState('organs');
     const activeFactor = activeFactorId ? FACTORS_DATA[activeFactorId] : null;
@@ -398,36 +433,32 @@ export default function App() {
     }, []);
 
     useEffect(() => {
-        // Один жест колеса/тачпада = одна стадия. Инерция тачпада иначе
+        // Один жест колеса/тачпада/свайпа = одна стадия. Инерция тачпада иначе
         // проскакивает слой цивилизации: природа и общество делят одну планету,
         // а через 1.2с лок отпускался, пока пальцы ещё едут.
         let gestureLocked = false;
         let idleTimer = null;
         let holdUntil = 0;
 
-        const handleWheel = (e) => {
-            // Ctrl/Cmd + колесо и pinch оставляем OrbitControls как зум
-            if (e.ctrlKey || e.metaKey) return;
+        const relock = () => {
+            const remaining = Math.max(0, holdUntil - performance.now());
+            clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => {
+                gestureLocked = false;
+            }, Math.max(remaining, 420));
+        };
 
+        /** Общий шаг по пути: колесо и свайп делают ровно одно и то же. */
+        const step = (forward) => {
             const state = useStore.getState();
-            // Единый порог на всех слоях. Отдельный порог 320 на микро-уровне
-            // отдавал колесо зуму, но реальная мышь шлёт 120 — из клетки нельзя
-            // было уйти ни вперёд, ни назад, и микромир «вылезал» второй раз
-            // при возврате с антропо-уровня. Зум остался на Ctrl + колесо.
-            const threshold = state.stage >= 1 ? 40 : 5;
-            if (Math.abs(e.deltaY) < threshold) return;
-
-            e.preventDefault();
-            e.stopPropagation();
-
-            // Пока идёт переход, колесо не копится в очередь
+            // Пока идёт переход, жесты не копятся в очередь
             if (state.shift) return;
 
             if (!gestureLocked) {
                 gestureLocked = true;
                 const from = state.stage;
 
-                if (e.deltaY > 0) {
+                if (forward) {
                     if (from === 0 && !state.isExploded) {
                         state.triggerBang();
                     } else {
@@ -455,22 +486,82 @@ export default function App() {
                 holdUntil = performance.now() + holdMs;
             }
 
-            const remaining = Math.max(0, holdUntil - performance.now());
-            clearTimeout(idleTimer);
-            idleTimer = setTimeout(() => {
-                gestureLocked = false;
-            }, Math.max(remaining, 420));
+            relock();
+        };
+
+        const handleWheel = (e) => {
+            // Ctrl/Cmd + колесо и pinch оставляем OrbitControls как зум
+            if (e.ctrlKey || e.metaKey) return;
+
+            // Единый порог на всех слоях. Отдельный порог 320 на микро-уровне
+            // отдавал колесо зуму, но реальная мышь шлёт 120 — из клетки нельзя
+            // было уйти ни вперёд, ни назад, и микромир «вылезал» второй раз
+            // при возврате с антропо-уровня. Зум остался на Ctrl + колесо.
+            const threshold = useStore.getState().stage >= 1 ? 40 : 5;
+            if (Math.abs(e.deltaY) < threshold) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+            step(e.deltaY > 0);
+        };
+
+        // ─── Касания ──────────────────────────────────────────────────────
+        // На телефоне колеса нет, и без этого пройти путь было невозможно:
+        // зритель застревал на первом же слое. Одним пальцем — шаг по пути,
+        // двумя — облёт и зум (OrbitControls, см. проп touches).
+        let touch = null;
+
+        const onTouchStart = (e) => {
+            // Жест по кнопке интерфейса навигацией не считается
+            if (e.touches.length !== 1 || e.target?.closest?.('button')) {
+                touch = null;
+                return;
+            }
+            const point = e.touches[0];
+            touch = { x: point.clientX, y: point.clientY, at: performance.now(), moved: false };
+        };
+
+        const onTouchMove = (e) => {
+            if (!touch || e.touches.length !== 1) return;
+            const point = e.touches[0];
+            if (Math.abs(point.clientY - touch.y) > 12 || Math.abs(point.clientX - touch.x) > 12) {
+                touch.moved = true;
+            }
+        };
+
+        const onTouchEnd = (e) => {
+            const start = touch;
+            touch = null;
+            // Касание без движения — это тап по фактору, а не свайп
+            if (!start || !start.moved) return;
+
+            const point = e.changedTouches[0];
+            const dy = point.clientY - start.y;
+            const dx = point.clientX - start.x;
+            const elapsed = performance.now() - start.at;
+
+            // Вертикальный и решительный: медленное поперечное ведение —
+            // это разглядывание сцены, а не переход на следующий слой
+            if (Math.abs(dy) < 70 || Math.abs(dy) < Math.abs(dx) * 1.4 || elapsed > 900) return;
+
+            step(dy < 0);
         };
 
         window.addEventListener('wheel', handleWheel, { passive: false, capture: true });
+        window.addEventListener('touchstart', onTouchStart, { passive: true });
+        window.addEventListener('touchmove', onTouchMove, { passive: true });
+        window.addEventListener('touchend', onTouchEnd, { passive: true });
         return () => {
             window.removeEventListener('wheel', handleWheel, { capture: true });
+            window.removeEventListener('touchstart', onTouchStart);
+            window.removeEventListener('touchmove', onTouchMove);
+            window.removeEventListener('touchend', onTouchEnd);
             if (idleTimer) clearTimeout(idleTimer);
         };
     }, []);
 
     return (
-        <div className={`relative w-screen h-screen overflow-hidden font-sans transition-colors duration-[1200ms] ${stage === HUMAN_STAGE ? 'bg-[#e9edf4] text-slate-950' : 'bg-black text-white'}`}>
+        <div className={`relative w-screen h-screen overflow-hidden touch-none font-sans transition-colors duration-[1200ms] ${stage === HUMAN_STAGE ? 'bg-[#e9edf4] text-slate-950' : 'bg-black text-white'}`}>
 
             {/* 3D Canvas */}
             <div className="absolute inset-0">
@@ -500,6 +591,11 @@ export default function App() {
                             zoomSpeed={stage === CELL_STAGE ? 1.05 : (stage === 2 || stage === 3 ? 0.75 : 0.6)}
                             minDistance={stage === 2 || stage === 3 ? 18 : stage === CELL_STAGE ? 1.4 : (stage === HUMAN_STAGE ? 1.6 : 5)}
                             maxDistance={stage === 2 || stage === 3 ? 90 : stage === CELL_STAGE ? 80 : (stage === HUMAN_STAGE ? 26 : 200)}
+                            /* Один палец отдан навигации по пути, иначе свайп
+                               одновременно листал бы слой и крутил камеру */
+                            touches={isTouch
+                                ? { ONE: THREE.TOUCH.NONE, TWO: THREE.TOUCH.DOLLY_ROTATE }
+                                : { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
                             dampingFactor={0.08}
                             enableDamping
                             target={stage === 2 || stage === 3 ? [0, 0.4, 0] : (stage === HUMAN_STAGE ? bodyLook : [0, 0, 0])}
@@ -553,50 +649,50 @@ export default function App() {
                 )}
             </div>
 
-            <Onboarding stage={stage} hidden={shifting || !!activeFactor} light={stage === HUMAN_STAGE} />
+            <Onboarding stage={stage} hidden={shifting || !!activeFactor} light={stage === HUMAN_STAGE} touch={isTouch} />
 
             {/* UI Overlay */}
-            <div className={`absolute bottom-10 w-full text-center pointer-events-none data-ui transition-opacity duration-500 ${shifting ? 'opacity-0' : 'opacity-100'}`}>
+            <div className={`absolute bottom-4 sm:bottom-10 w-full px-4 text-center pointer-events-none data-ui transition-opacity duration-500 ${shifting ? 'opacity-0' : 'opacity-100'}`}>
                 {!isExploded && (
                     <p className="text-white/50 tracking-[0.3em] uppercase text-xs animate-pulse">
-                        Скролль вниз для старта
+                        {isTouch ? 'Свайп вверх для старта' : 'Скролль вниз для старта'}
                     </p>
                 )}
                 {stage === 1 && (
                     <div className="text-white/70 animate-fade-in relative z-50">
-                        <p className="tracking-widest uppercase text-sm mb-2">Макрокосмос</p>
-                        <p className="text-xs text-white/50">Вращай камеру, кликай на объекты. Скролль дальше.</p>
+                        <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2">Макрокосмос</p>
+                        <p className="text-xs text-white/50">{isTouch ? 'Двумя пальцами — облёт, касание — объект. Свайп дальше.' : 'Вращай камеру, кликай на объекты. Скролль дальше.'}</p>
                     </div>
                 )}
                 {stage === 2 && approachingEarth && (
                     <div className="text-white/70 animate-fade-in relative z-50">
-                        <p className="tracking-widest uppercase text-sm mb-2">Приближение к Земле</p>
+                        <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2">Приближение к Земле</p>
                         <p className="text-xs text-white/40">Камера входит в систему. Планета растёт в кадре.</p>
                     </div>
                 )}
                 {stage === 2 && !approachingEarth && (
                     <div className="text-white/70 animate-fade-in relative z-50">
-                        <p className="tracking-widest uppercase text-sm mb-2">
+                        <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2">
                             Мезо-уровень 1: Природа и Стихии
                         </p>
-                        <p className="text-xs text-white/40">Вращай планету, кликай на факторы. Скролль дальше — Земля повернётся к городам.</p>
+                        <p className="text-xs text-white/40">{isTouch ? 'Двумя пальцами — облёт, касание — фактор. Свайп дальше — Земля повернётся к городам.' : 'Вращай планету, кликай на факторы. Скролль дальше — Земля повернётся к городам.'}</p>
                     </div>
                 )}
                 {stage === 3 && (
                     <div className="text-white/70 animate-fade-in relative z-50">
-                        <p className="tracking-widest uppercase text-sm mb-2 text-yellow-500">
+                        <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2 text-yellow-500">
                             Мезо-уровень 2: Общество и Цивилизация
                         </p>
-                        <p className="text-xs text-white/40">Вращай планету, кликай на факторы. Скролль дальше — к человеку.</p>
+                        <p className="text-xs text-white/40">{isTouch ? 'Двумя пальцами — облёт, касание — фактор. Свайп дальше — к человеку.' : 'Вращай планету, кликай на факторы. Скролль дальше — к человеку.'}</p>
                     </div>
                 )}
                 {stage === CELL_STAGE && (
                     <div className="text-white/70 animate-fade-in relative z-50 pointer-events-auto">
-                        <p className="tracking-widest uppercase text-sm mb-2 text-fuchsia-400">
+                        <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2 text-fuchsia-400">
                             Микро-уровень: Рождение Сознания
                         </p>
                         <p className="text-xs text-white/40 mb-4 font-light">
-                            Внутри клеток и синапсов. Скролль дальше — к итогу пути. Ctrl + колесо приближает.
+                            Внутри клеток и синапсов. {isTouch ? 'Свайп дальше — к итогу пути. Двумя пальцами — зум.' : 'Скролль дальше — к итогу пути. Ctrl + колесо приближает.'}
                         </p>
                         <button
                             onClick={nextStage}
@@ -608,7 +704,7 @@ export default function App() {
                 )}
                 {stage === HUMAN_STAGE && (
                     <div className="text-slate-700 animate-fade-in relative z-50 pointer-events-auto">
-                        <p className="tracking-widest uppercase text-sm mb-2 text-rose-600">
+                        <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2 text-rose-600">
                             {activeRegion
                                 ? `Антропо-уровень: ${activeRegion.title}`
                                 : 'Антропо-уровень: Тело, Эмоции, Личность'}
@@ -616,17 +712,17 @@ export default function App() {
                         {humanLayer === 'organs' && (
                             <p className="text-xs text-slate-500 mb-3">
                                 {activeRegion
-                                    ? 'Кликай по факторам области. Пустое место — назад к фигуре.'
-                                    : 'Наведи курсор на часть тела и кликни — раскроются её факторы.'}
+                                    ? (isTouch ? 'Касайся факторов области. Пустое место — назад к фигуре.' : 'Кликай по факторам области. Пустое место — назад к фигуре.')
+                                    : (isTouch ? 'Коснись части тела — раскроются её факторы.' : 'Наведи курсор на часть тела и кликни — раскроются её факторы.')}
                             </p>
                         )}
                         {humanLayer === 'organs' && (
-                            <div className="inline-flex flex-wrap items-center justify-center gap-1 mb-3">
+                            <div className="inline-flex flex-wrap items-center justify-center gap-1 mb-2 sm:mb-3">
                                 {BODY_REGIONS.map((region) => (
                                     <button
                                         key={region.id}
                                         onClick={() => setBodyRegion(bodyRegion === region.id ? null : region.id)}
-                                        className={`px-3 py-1 rounded-full border text-[11px] uppercase tracking-wider transition-colors ${bodyRegion === region.id
+                                        className={`px-2.5 sm:px-3 py-1 rounded-full border text-[10px] sm:text-[11px] uppercase tracking-wider transition-colors ${bodyRegion === region.id
                                             ? 'border-cyan-500 bg-cyan-500 text-white'
                                             : 'border-slate-300 bg-white/70 text-slate-500 hover:text-slate-950'}`}
                                     >
@@ -643,7 +739,7 @@ export default function App() {
                                 )}
                             </div>
                         )}
-                        <div className="inline-flex items-center gap-1 p-1 mb-4 rounded-full border border-slate-300 bg-white/75 shadow-sm backdrop-blur-md">
+                        <div className="inline-flex items-center gap-1 p-1 mb-2 sm:mb-4 rounded-full border border-slate-300 bg-white/75 shadow-sm backdrop-blur-md">
                             <button
                                 onClick={() => setHumanLayer('organs')}
                                 className={`px-4 py-1.5 rounded-full text-[11px] uppercase tracking-wider transition-colors ${humanLayer === 'organs' ? 'bg-cyan-500 text-white' : 'text-slate-500 hover:text-slate-950'}`}
@@ -657,7 +753,7 @@ export default function App() {
                                 Эмоции
                             </button>
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-1">Скролль дальше — в клетку.</p>
+                        <p className="text-[11px] text-slate-400 mt-1">{isTouch ? 'Свайп дальше — в клетку.' : 'Скролль дальше — в клетку.'}</p>
                     </div>
                 )}
                 {stage === FINALE_STAGE && (
@@ -689,7 +785,7 @@ export default function App() {
 
             {/* Factor Tooltip Modal */}
             {activeFactor && (
-                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black/85 border border-white/20 p-8 rounded-2xl max-w-lg z-[100] text-left pointer-events-auto backdrop-blur-md shadow-[0_0_50px_rgba(255,255,255,0.1)] transition-all animate-fade-in flex flex-col gap-4">
+                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black/85 border border-white/20 p-5 sm:p-8 rounded-2xl w-[calc(100vw-2rem)] max-w-lg z-[100] text-left pointer-events-auto backdrop-blur-md shadow-[0_0_50px_rgba(255,255,255,0.1)] transition-all animate-fade-in flex flex-col gap-4">
 
                     <h3 className={`text-2xl font-bold uppercase tracking-widest ${isReversed ? 'text-cyan-400' : 'text-fuchsia-400'}`}>
                         {isReversed ? activeFactor.reverseName : activeFactor.name}

@@ -15,10 +15,17 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 const STORAGE_KEY = 'reality:onboarded';
 
-const HINTS = [
+const POINTER_HINTS = [
     { gesture: 'Колесо', meaning: 'следующий слой реальности' },
     { gesture: 'Зажми и веди', meaning: 'повернуть камеру' },
     { gesture: 'Клик по метке', meaning: 'фактор и его обратная сторона' },
+];
+
+// На телефоне колеса и курсора нет: один палец ведёт по пути, два облетают
+const TOUCH_HINTS = [
+    { gesture: 'Свайп вверх', meaning: 'следующий слой реальности' },
+    { gesture: 'Два пальца', meaning: 'повернуть и приблизить' },
+    { gesture: 'Касание метки', meaning: 'фактор и его обратная сторона' },
 ];
 
 /**
@@ -41,7 +48,7 @@ function writeSeen() {
     }
 }
 
-export default function Onboarding({ stage, hidden, light }) {
+export default function Onboarding({ stage, hidden, light, touch }) {
     const [seen, setSeen] = useState(readSeen);
     const [open, setOpen] = useState(false);
 
@@ -69,6 +76,7 @@ export default function Onboarding({ stage, hidden, light }) {
 
     if (stage === 0 || hidden) return null;
 
+    const hints = touch ? TOUCH_HINTS : POINTER_HINTS;
     const muted = light ? 'text-slate-500' : 'text-white/45';
     const accent = light ? 'text-slate-900' : 'text-white/90';
     const panel = light
@@ -76,14 +84,14 @@ export default function Onboarding({ stage, hidden, light }) {
         : 'border-white/15 bg-black/70 text-white/70';
 
     return (
-        <div className="absolute bottom-10 left-10 z-[60] flex flex-col items-start gap-3 pointer-events-none">
+        <div className="absolute top-4 left-4 sm:top-auto sm:bottom-10 sm:left-10 z-[60] flex flex-col-reverse sm:flex-col items-start gap-3 pointer-events-none">
             {open && (
-                <div className={`pointer-events-auto w-72 rounded-2xl border p-5 backdrop-blur-md shadow-lg animate-fade-in ${panel}`}>
+                <div className={`pointer-events-auto w-64 max-w-[calc(100vw-2rem)] rounded-2xl border p-4 sm:p-5 backdrop-blur-md shadow-lg animate-fade-in ${panel}`}>
                     <p className={`text-[10px] uppercase tracking-[0.4em] mb-4 ${muted}`}>
                         Как это работает
                     </p>
                     <ul className="flex flex-col gap-3 mb-5">
-                        {HINTS.map((hint) => (
+                        {hints.map((hint) => (
                             <li key={hint.gesture} className="text-xs leading-snug">
                                 <span className={`font-medium ${accent}`}>{hint.gesture}</span>
                                 <span className={muted}> — {hint.meaning}</span>
