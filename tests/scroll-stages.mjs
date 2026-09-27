@@ -44,7 +44,8 @@ await page.screenshot({ path: 'tests/screenshots/after-burst-from-2.png' });
 
 await page.waitForTimeout(2600);
 await burstWheel();
-await page.waitForTimeout(200);
+// Переход 3→4 накрыт вуалью: стадия меняется в середине заливки, а не сразу
+await page.waitForTimeout(1400);
 const afterSecond = await page.evaluate(() => window.realityStore.getState().stage);
 await page.screenshot({ path: 'tests/screenshots/after-second-burst.png' });
 

@@ -45,12 +45,12 @@ const shot = async (stage, name, extra) => {
     return fps;
 };
 
-const micro = await shot(4, '4-micro-new');
-const organs = await shot(5, '5-human-organs');
-const emotions = await shot(5, '5-human-emotions', () => {
+const organs = await shot(4, '4-human-organs');
+const emotions = await shot(4, '4-human-emotions', () => {
     const btn = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Эмоции'));
     btn?.click();
 });
+const micro = await shot(5, '5-micro-new');
 
 console.log(JSON.stringify({ micro, organs, emotions, errors }, null, 2));
 await browser.close();

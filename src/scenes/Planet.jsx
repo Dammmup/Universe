@@ -1,20 +1,20 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
+import gsap from 'gsap';
 import { useStore } from '../store';
 import { latLonToArray, latLonToVec3, seededRandom, sunDirection } from '../lib/geo';
 import { circleSprite, starSprite } from '../lib/sprites';
 import { auroraFragment, auroraVertex } from '../lib/shaders/aurora';
+import FactorMarker from './effects/FactorMarker';
 import EarthGlobe, { PlanetAtmosphere } from './earth/EarthGlobe';
 import NatureLayer from './earth/NatureLayer';
 import CityLayer from './earth/CityLayer';
 
 const R = 10;
 
-// ─── Небо: звёзды, солнце, луна ──────────────────────────────────────────────
-
-// ─── Небо: звёзды, солнце, луна ──────────────────────────────────────────────
+/** Доворот планеты к городскому полушарию: центр диска приходится на ~65° в.д. */
+const CITY_SPIN = THREE.MathUtils.degToRad(205);
 
 /**
  * Звёздное небо в двух слоях: россыпь слабых звёзд и отдельные яркие светила.
@@ -225,7 +225,7 @@ function AuroraCurtain({ pole, faded }) {
     const y = pole === 'north' ? R * 0.9 : -R * 0.9;
 
     return (
-        <mesh position={[0, y, 0]} rotation={[pole === 'north' ? 0 : Math.PI, 0, 0]}>
+        <mesh position={[0, y, 0]} rotation={[pole === 'north' ? 0 : Math.PI, 0, 0]} raycast={() => {}}>
             <cylinderGeometry args={[R * 0.4, R * 0.47, 2.2, 72, 1, true]} />
             <shaderMaterial
                 ref={materialRef}
@@ -316,24 +316,33 @@ function InterferenceRings({ isolated }) {
                 ring.scale.setScalar(Math.max(0.15, ring.scale.x - delta * 0.35));
                 ring.material.opacity = Math.max(0, ring.material.opacity - delta * 0.25);
             } else {
-                ring.scale.setScalar(1 + Math.sin(t * 1.4 + i * 1.3) * 0.06);
-                ring.material.opacity = 0.2 + Math.sin(t * 2 + i * 1.5) * 0.09;
+                ring.scale.setScalar(1 + Math.sin(t * 1.4 + i * 1.3) * 0.045);
+                ring.material.opacity = 0.11 + Math.sin(t * 2 + i * 1.5) * 0.06;
             }
         });
     });
 
+    // Наклон и разная толщина: три одинаковых кольца в одной плоскости читались
+    // как надетый на планету обруч, а не как расходящаяся волна.
+    const rings = [
+        { radius: R + 1.5, tube: 0.012, tilt: [Math.PI / 2 + 0.16, 0.1, 0] },
+        { radius: R + 2.9, tube: 0.016, tilt: [Math.PI / 2 - 0.22, -0.18, 0.3] },
+        { radius: R + 4.6, tube: 0.02, tilt: [Math.PI / 2 + 0.34, 0.24, -0.2] },
+    ];
+
     return (
         <group ref={groupRef}>
-            {[R + 1.6, R + 2.7, R + 3.9].map((rad, i) => (
-                <mesh key={rad} rotation={[Math.PI / 2, 0, i * 0.2]}>
-                    <torusGeometry args={[rad, 0.05, 6, 96]} />
+            {rings.map((ring) => (
+                <mesh key={ring.radius} rotation={ring.tilt} raycast={() => {}}>
+                    <torusGeometry args={[ring.radius, ring.tube, 6, 160]} />
                     <meshBasicMaterial
-                        color="#ff8cf0"
+                        color="#c9a8ff"
                         transparent
-                        opacity={0.22}
+                        opacity={0.12}
                         side={THREE.DoubleSide}
                         blending={THREE.AdditiveBlending}
                         depthWrite={false}
+                        toneMapped={false}
                     />
                 </mesh>
             ))}
@@ -344,52 +353,19 @@ function InterferenceRings({ isolated }) {
 // ─── Интерактивные факторы ───────────────────────────────────────────────────
 
 function FactorTrigger({ position, factorId, label, color = '#ffffaa', warn = false }) {
-    const reversed = useStore((s) => !!s.reversedFactors[factorId]);
-    const setActiveFactor = useStore((s) => s.setActiveFactor);
-    const meshRef = useRef();
-
-    useFrame((state, delta) => {
-        const mesh = meshRef.current;
-        if (!mesh) return;
-        mesh.rotation.y += delta * 0.9;
-        mesh.rotation.x += delta * 0.45;
-        mesh.scale.setScalar(1 + Math.sin(state.clock.elapsedTime * 2 + position[0]) * 0.09);
-    });
-
-    const tone = warn ? (reversed ? '#9dffb4' : '#ff4433') : (reversed ? '#7fd4ff' : color);
     const [primary, secondary] = label.split(' / ');
 
     return (
-        <group
+        <FactorMarker
             position={position}
-            onClick={(e) => { e.stopPropagation(); setActiveFactor(factorId); }}
-            onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-            onPointerOut={() => { document.body.style.cursor = 'auto'; }}
-        >
-            <mesh ref={meshRef}>
-                <octahedronGeometry args={[0.5, 0]} />
-                <meshBasicMaterial color={tone} wireframe />
-            </mesh>
-            <mesh>
-                <sphereGeometry args={[0.95, 10, 8]} />
-                <meshBasicMaterial color={tone} transparent opacity={0.06} depthWrite={false} />
-            </mesh>
-            {/* Billboard: планета вращается вместе с факторами, без него подписи
-                на дальнем полушарии читались бы зеркально */}
-            <Billboard position={[0, -0.95, 0]}>
-                <Text
-                    font="/Roboto-Regular.ttf"
-                    fontSize={0.33}
-                    color={tone}
-                    anchorX="center"
-                    anchorY="top"
-                    outlineColor="black"
-                    outlineWidth={0.055}
-                >
-                    {reversed ? (secondary || primary) : primary}
-                </Text>
-            </Billboard>
-        </group>
+            factorId={factorId}
+            label={primary}
+            reverseLabel={secondary || primary}
+            color={warn ? '#ff5a3c' : color}
+            reverseColor={warn ? '#9dffb4' : '#7fd4ff'}
+            scale={1.25}
+            labelOffset={-0.85}
+        />
     );
 }
 
@@ -410,20 +386,24 @@ const NATURE_FACTORS = [
     { id: 'starField', label: 'ЗВЁЗДНОЕ НЕБО / ТУМАН', color: '#ffffff', lat: 8, lon: -20, lift: 4.2 },
 ];
 
+// Городское полушарие смотрит на камеру серединой около 90° в.д. Шесть факторов
+// стояли в Европе (4°–55° в.д.) — у самого лимба, где проекция сжимает всё в
+// кучу, и подписи налезали друг на друга. Точки разнесены по видимому диску:
+// Африка и Индийский океан на юге, Сибирь наверху, Дальний Восток справа.
 const CIVILISATION_FACTORS = [
-    { id: 'war', label: 'ВОЙНА / МИР', warn: true, lat: 33, lon: 44, lift: 1.9 },
-    { id: 'progress', label: 'ПРОГРЕСС / СТАГНАЦИЯ', color: '#8cd0ff', lat: 35.7, lon: 139.7, lift: 2.1 },
-    { id: 'skyline', label: 'НЕБОСКРЁБЫ / РУИНЫ', color: '#cfe4ff', lat: 25.2, lon: 55.3, lift: 1.7 },
-    { id: 'ecology', label: 'ИНДУСТРИЯ / ЭКОБАЛАНС', color: '#8dffab', lat: 31, lon: 114, lift: 2.3 },
-    { id: 'urbanization', label: 'УРБАНИЗАЦИЯ / УПАДОК', color: '#aeaecf', lat: 28.6, lon: 77.2, lift: 1.5 },
-    { id: 'trade', label: 'ТОРГОВЛЯ / ИЗОЛЯЦИЯ', color: '#ffcf55', lat: 4, lon: 80, lift: 2.2 },
-    { id: 'culture', label: 'КУЛЬТУРА / ВАРВАРСТВО', color: '#ffaaff', lat: 41.9, lon: 12.5, lift: 2.1 },
-    { id: 'energy', label: 'ЭНЕРГИЯ / ИСТОЩЕНИЕ', color: '#ff9147', lat: 24, lon: 52, lift: 2.8 },
-    { id: 'language', label: 'ЯЗЫК / ШУМ', color: '#ffffff', lat: 52.5, lon: 13.4, lift: 1.9 },
-    { id: 'law', label: 'ПРАВО / ПРОИЗВОЛ', color: '#9ad7ff', lat: 52, lon: 4.3, lift: 2.7 },
-    { id: 'education', label: 'ОБРАЗОВАНИЕ / НЕВЕЖЕСТВО', color: '#ffe38a', lat: 55.8, lon: 37.6, lift: 2.2 },
-    { id: 'medicine', label: 'МЕДИЦИНА / ЭПИДЕМИЯ', color: '#7dffb0', lat: 46.2, lon: 6.1, lift: 3.4 },
-    { id: 'sunEnergy', label: 'СОЛНЦЕ / УГАСАНИЕ', color: '#ffaa00', lat: -20, lon: 120, lift: 3.0 },
+    { id: 'culture', label: 'КУЛЬТУРА / ВАРВАРСТВО', color: '#ffaaff', lat: 41.9, lon: 12.5, lift: 4.2 },
+    { id: 'law', label: 'ПРАВО / ПРОИЗВОЛ', color: '#9ad7ff', lat: 41, lon: 29, lift: 1.4 },
+    { id: 'language', label: 'ЯЗЫК / ШУМ', color: '#ffffff', lat: 26, lon: 30, lift: 2.8 },
+    { id: 'education', label: 'ОБРАЗОВАНИЕ / НЕВЕЖЕСТВО', color: '#ffe38a', lat: 55.8, lon: 37.6, lift: 2.6 },
+    { id: 'medicine', label: 'МЕДИЦИНА / ЭПИДЕМИЯ', color: '#7dffb0', lat: -1.3, lon: 36.8, lift: 2.0 },
+    { id: 'war', label: 'ВОЙНА / МИР', warn: true, lat: 34, lon: 44, lift: 1.5 },
+    { id: 'skyline', label: 'НЕБОСКРЁБЫ / РУИНЫ', color: '#cfe4ff', lat: 25.2, lon: 55.3, lift: 1.5 },
+    { id: 'energy', label: 'ЭНЕРГИЯ / ИСТОЩЕНИЕ', color: '#ff9147', lat: 61.3, lon: 73.4, lift: 3.0 },
+    { id: 'urbanization', label: 'УРБАНИЗАЦИЯ / УПАДОК', color: '#aeaecf', lat: 28.6, lon: 77.2, lift: 1.4 },
+    { id: 'trade', label: 'ТОРГОВЛЯ / ИЗОЛЯЦИЯ', color: '#ffcf55', lat: 1.4, lon: 103.8, lift: 1.8 },
+    { id: 'ecology', label: 'ИНДУСТРИЯ / ЭКОБАЛАНС', color: '#8dffab', lat: 31.2, lon: 121.5, lift: 1.6 },
+    { id: 'progress', label: 'ПРОГРЕСС / СТАГНАЦИЯ', color: '#8cd0ff', lat: 35.7, lon: 139.7, lift: 2.2 },
+    { id: 'sunEnergy', label: 'СОЛНЦЕ / УГАСАНИЕ', color: '#ffaa00', lat: -25, lon: 133, lift: 2.6 },
 ];
 
 function FactorField({ factors }) {
@@ -454,6 +434,30 @@ export default function Planet() {
     const sunDir = useRef(new THREE.Vector3(1, 0.32, 0).normalize());
 
     const isNature = stage === 2;
+
+    // Камера не облетает шар: природа — Америки к объективу, цивилизация — Азия.
+    const firstSpin = useRef(true);
+    useEffect(() => {
+        if (!planetGroup.current) return;
+        // Поворот на ровные 180° выводил в центр кадра 90° в.д., и вся Европа
+        // с Ближним Востоком оказывалась у самого лимба, где проекция сжимает
+        // точки в кучу. Доворот до 205° ставит в центр ~65° в.д. — материки
+        // от Рима до Токио умещаются в диске без давки.
+        const targetY = isNature ? 0 : CITY_SPIN;
+
+        if (firstSpin.current) {
+            firstSpin.current = false;
+            planetGroup.current.rotation.y = targetY;
+            return undefined;
+        }
+
+        const tween = gsap.to(planetGroup.current.rotation, {
+            y: targetY,
+            duration: 2.4,
+            ease: 'power2.inOut',
+        });
+        return () => tween.kill();
+    }, [isNature]);
 
     const globeTuning = useMemo(() => ({
         drought: reversedFactors.ocean ? 1 : 0,

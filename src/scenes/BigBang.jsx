@@ -7,7 +7,7 @@ import { useStore } from '../store';
 export default function BigBang() {
     const isExploded = useStore((s) => s.isExploded);
     const triggerBang = useStore((s) => s.triggerBang);
-    const setStage = useStore((s) => s.setStage);
+    const beginShift = useStore((s) => s.beginShift);
     const particleCount = 20000;
     const pointsRef = useRef();
     const materialRef = useRef();
@@ -66,25 +66,30 @@ export default function BigBang() {
     }, [particleCount]);
 
     const hasExploded = useRef(false);
+    const bangTween = useRef(null);
 
     useEffect(() => {
         if (isExploded && !hasExploded.current) {
             hasExploded.current = true;
             // Анимация камеры при Большом Взрыве (отлет назад)
-            gsap.to(camera.position, {
+            bangTween.current = gsap.to(camera.position, {
                 z: 50,
-                duration: 4,
+                duration: 3.4,
                 ease: "power3.out",
                 onComplete: () => {
-                    // Переход на макро-уровень (Космос) только если мы все еще на 0
+                    // Ударная волна выбеливает кадр, и уже под вспышкой сцена
+                    // сменяется на макро-уровень
                     if (useStore.getState().stage === 0) {
-                        setStage(1);
+                        beginShift('bang', { type: 'stage', to: 1 });
                     }
                 }
             });
         }
-        return () => gsap.killTweensOf(camera.position);
-    }, [isExploded, camera, setStage]);
+        // Гасим только свой твин. killTweensOf(camera.position) при размонтаже
+        // убивал бы и въезд в следующий слой: сцены снимаются с задержкой
+        // Suspense, уже после того, как камера получила новую траекторию.
+        return () => { bangTween.current?.kill(); };
+    }, [isExploded, camera, beginShift]);
 
     // Обработка клика по изначальной точке (на случай если пользователь кликнул вместо скролла)
     const handlePointerDown = () => {

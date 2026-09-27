@@ -33,5 +33,6 @@ void main() {
 
     vec3 color = mix(uColorLow, uColorHigh, vUv.y);
     gl_FragColor = vec4(color * alpha, alpha);
+    #include <colorspace_fragment>
 }
 `;

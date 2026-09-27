@@ -11,6 +11,9 @@ import {
     earthSurfaceVertex,
 } from '../../lib/shaders/earth';
 
+/** Поверхность и атмосфера не должны перехватывать клики по факторам. */
+const skipRaycast = () => {};
+
 /** Поверхность планеты: континенты с рельефом, океан с волнами, прибой, огни городов. */
 function EarthSurface({ radius, segments, textures, sunDir, quality, tuning }) {
     const materialRef = useRef();
@@ -48,7 +51,7 @@ function EarthSurface({ radius, segments, textures, sunDir, quality, tuning }) {
     });
 
     return (
-        <mesh>
+        <mesh raycast={skipRaycast}>
             <sphereGeometry args={[radius, segments, segments / 2]} />
             <shaderMaterial
                 ref={materialRef}
@@ -83,7 +86,7 @@ function EarthClouds({ radius, textures, sunDir, opacity, drift }) {
     });
 
     return (
-        <mesh ref={meshRef}>
+        <mesh ref={meshRef} raycast={skipRaycast}>
             <sphereGeometry args={[radius, 64, 32]} />
             <shaderMaterial
                 ref={materialRef}
@@ -135,7 +138,7 @@ export function PlanetAtmosphere({
     });
 
     return (
-        <mesh scale={scale}>
+        <mesh scale={scale} raycast={skipRaycast}>
             <sphereGeometry args={[radius, 48, 24]} />
             <shaderMaterial
                 ref={materialRef}
