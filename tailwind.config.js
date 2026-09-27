@@ -27,9 +27,15 @@ export default {
                     from: { opacity: '0' },
                     to: { opacity: '1' },
                 },
+                // Окно сценария всплывает из глубины — событие важнее подсказки
+                'rise-in': {
+                    from: { opacity: '0', transform: 'translateY(24px) scale(0.94)' },
+                    to: { opacity: '1', transform: 'translateY(0) scale(1)' },
+                },
             },
             animation: {
                 'fade-in': 'fade-in 700ms ease-out both',
+                'rise-in': 'rise-in 900ms cubic-bezier(0.16, 1, 0.3, 1) both',
             }
         },
     },

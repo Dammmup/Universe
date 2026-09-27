@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import gsap from 'gsap';
 import { useStore } from '../store';
-import { latLonToArray, latLonToVec3, seededRandom, sunDirection } from '../lib/geo';
+import { latLonToArray, latLonToVec3, seededRandom, sunDirection, surfaceQuaternion } from '../lib/geo';
+import { locationsForStage } from '../data/locations';
 import { circleSprite, starSprite } from '../lib/sprites';
 import { auroraFragment, auroraVertex } from '../lib/shaders/aurora';
 import FactorMarker from './effects/FactorMarker';
@@ -15,6 +17,15 @@ const R = 10;
 
 /** Доворот планеты к городскому полушарию: центр диска приходится на ~65° в.д. */
 const CITY_SPIN = THREE.MathUtils.degToRad(205);
+
+/**
+ * Природная карта смотрит серединой на ~35° з.д.: в диске одновременно
+ * Амазония, Анды, Сахара, Гренландия, Атлантика и канадская тайга — все шесть
+ * локаций без облёта.
+ */
+// Центр диска = −90° − поворот: 305° (то же, что −55°) выводит в центр 35° з.д.
+// и оставляет до городского доворота короткие 100°, а не полный круг.
+const NATURE_SPIN = THREE.MathUtils.degToRad(305);
 
 /**
  * Звёздное небо в двух слоях: россыпь слабых звёзд и отдельные яркие светила.
@@ -303,53 +314,6 @@ function WarFlashes({ radius, atPeace }) {
     );
 }
 
-/** Волновые кольца интерференции вокруг планеты. */
-function InterferenceRings({ isolated }) {
-    const groupRef = useRef();
-
-    useFrame((state, delta) => {
-        const group = groupRef.current;
-        if (!group) return;
-        const t = state.clock.elapsedTime;
-        group.children.forEach((ring, i) => {
-            if (isolated) {
-                ring.scale.setScalar(Math.max(0.15, ring.scale.x - delta * 0.35));
-                ring.material.opacity = Math.max(0, ring.material.opacity - delta * 0.25);
-            } else {
-                ring.scale.setScalar(1 + Math.sin(t * 1.4 + i * 1.3) * 0.045);
-                ring.material.opacity = 0.11 + Math.sin(t * 2 + i * 1.5) * 0.06;
-            }
-        });
-    });
-
-    // Наклон и разная толщина: три одинаковых кольца в одной плоскости читались
-    // как надетый на планету обруч, а не как расходящаяся волна.
-    const rings = [
-        { radius: R + 1.5, tube: 0.012, tilt: [Math.PI / 2 + 0.16, 0.1, 0] },
-        { radius: R + 2.9, tube: 0.016, tilt: [Math.PI / 2 - 0.22, -0.18, 0.3] },
-        { radius: R + 4.6, tube: 0.02, tilt: [Math.PI / 2 + 0.34, 0.24, -0.2] },
-    ];
-
-    return (
-        <group ref={groupRef}>
-            {rings.map((ring) => (
-                <mesh key={ring.radius} rotation={ring.tilt} raycast={() => {}}>
-                    <torusGeometry args={[ring.radius, ring.tube, 6, 160]} />
-                    <meshBasicMaterial
-                        color="#c9a8ff"
-                        transparent
-                        opacity={0.12}
-                        side={THREE.DoubleSide}
-                        blending={THREE.AdditiveBlending}
-                        depthWrite={false}
-                        toneMapped={false}
-                    />
-                </mesh>
-            ))}
-        </group>
-    );
-}
-
 // ─── Интерактивные факторы ───────────────────────────────────────────────────
 
 function FactorTrigger({ position, factorId, label, color = '#ffffaa', warn = false }) {
@@ -369,42 +333,114 @@ function FactorTrigger({ position, factorId, label, color = '#ffffaa', warn = fa
     );
 }
 
-// lift подобран так, чтобы маркеры в центре видимого диска не подлетали
-// вплотную к камере: чем ближе точка к центру полушария, тем меньше подъём.
+// На карте остаются только факторы масштаба планеты. Всё местное живёт в
+// локациях (data/locations.js) — с орбиты лес и пустыня одинаково выглядят
+// цветным пятном, и факторы там были бы привязаны к пятну, а не к месту.
 const NATURE_FACTORS = [
-    { id: 'ocean', label: 'ОКЕАН / ЗАСУХА', color: '#4ab5ff', lat: 12, lon: -145, lift: 1.9 },
-    { id: 'waves', label: 'ВОЛНЫ / ШТИЛЬ', color: '#8ce0ff', lat: -26, lon: -112, lift: 1.7 },
-    { id: 'tectonics', label: 'ТЕКТОНИКА / ЗЕМЛЕТРЯСЕНИЯ', color: '#d99a4a', lat: -20, lon: -68, lift: 2.4 },
-    { id: 'photosynthesis', label: 'ФОТОСИНТЕЗ / УВЯДАНИЕ', color: '#4ecb4e', lat: -4, lon: -62, lift: 1.6 },
-    { id: 'wildlife', label: 'БИОСФЕРА / ВЫМИРАНИЕ', color: '#d8a05a', lat: 44, lon: -101, lift: 1.7 },
-    { id: 'migration', label: 'МИГРАЦИЯ / РАССЕИВАНИЕ', color: '#a9dcff', lat: 62, lon: -118, lift: 2.4 },
-    { id: 'atmosphere', label: 'АТМОСФЕРА / ОПУСТЫНИВАНИЕ', color: '#dcdcff', lat: 22, lon: -46, lift: 2.8 },
-    { id: 'aurora', label: 'ПОЛЯРНОЕ СИЯНИЕ / ЗАТУХАНИЕ', color: '#3fffcc', lat: 74, lon: -70, lift: 2.4 },
-    { id: 'glaciers', label: 'ЛЕДНИКИ / ТАЯНИЕ', color: '#dff2ff', lat: -66, lon: -80, lift: 2.0 },
-    { id: 'dayNight', label: 'ДЕНЬ / НОЧЬ', color: '#ffdd88', lat: 36, lon: -78, lift: 3.2 },
-    { id: 'interference', label: 'ИНТЕРФЕРЕНЦИЯ / ИЗОЛЯЦИЯ', color: '#ff8cf0', lat: -44, lon: -38, lift: 2.4 },
-    { id: 'starField', label: 'ЗВЁЗДНОЕ НЕБО / ТУМАН', color: '#ffffff', lat: 8, lon: -20, lift: 4.2 },
+    { id: 'atmosphere', label: 'АТМОСФЕРА / ОПУСТЫНИВАНИЕ', color: '#dcdcff', lat: 44, lon: -30, lift: 2.2 },
 ];
 
-// Городское полушарие смотрит на камеру серединой около 90° в.д. Шесть факторов
-// стояли в Европе (4°–55° в.д.) — у самого лимба, где проекция сжимает всё в
-// кучу, и подписи налезали друг на друга. Точки разнесены по видимому диску:
-// Африка и Индийский океан на юге, Сибирь наверху, Дальний Восток справа.
 const CIVILISATION_FACTORS = [
-    { id: 'culture', label: 'КУЛЬТУРА / ВАРВАРСТВО', color: '#ffaaff', lat: 41.9, lon: 12.5, lift: 4.2 },
-    { id: 'law', label: 'ПРАВО / ПРОИЗВОЛ', color: '#9ad7ff', lat: 41, lon: 29, lift: 1.4 },
-    { id: 'language', label: 'ЯЗЫК / ШУМ', color: '#ffffff', lat: 26, lon: 30, lift: 2.8 },
-    { id: 'education', label: 'ОБРАЗОВАНИЕ / НЕВЕЖЕСТВО', color: '#ffe38a', lat: 55.8, lon: 37.6, lift: 2.6 },
-    { id: 'medicine', label: 'МЕДИЦИНА / ЭПИДЕМИЯ', color: '#7dffb0', lat: -1.3, lon: 36.8, lift: 2.0 },
-    { id: 'war', label: 'ВОЙНА / МИР', warn: true, lat: 34, lon: 44, lift: 1.5 },
-    { id: 'skyline', label: 'НЕБОСКРЁБЫ / РУИНЫ', color: '#cfe4ff', lat: 25.2, lon: 55.3, lift: 1.5 },
-    { id: 'energy', label: 'ЭНЕРГИЯ / ИСТОЩЕНИЕ', color: '#ff9147', lat: 61.3, lon: 73.4, lift: 3.0 },
-    { id: 'urbanization', label: 'УРБАНИЗАЦИЯ / УПАДОК', color: '#aeaecf', lat: 28.6, lon: 77.2, lift: 1.4 },
-    { id: 'trade', label: 'ТОРГОВЛЯ / ИЗОЛЯЦИЯ', color: '#ffcf55', lat: 1.4, lon: 103.8, lift: 1.8 },
-    { id: 'ecology', label: 'ИНДУСТРИЯ / ЭКОБАЛАНС', color: '#8dffab', lat: 31.2, lon: 121.5, lift: 1.6 },
-    { id: 'progress', label: 'ПРОГРЕСС / СТАГНАЦИЯ', color: '#8cd0ff', lat: 35.7, lon: 139.7, lift: 2.2 },
-    { id: 'sunEnergy', label: 'СОЛНЦЕ / УГАСАНИЕ', color: '#ffaa00', lat: -25, lon: 133, lift: 2.6 },
+    { id: 'war', label: 'ВОЙНА / МИР', warn: true, lat: 46, lon: 46, lift: 1.5 },
 ];
+
+/**
+ * Точка локации на глобусе: игла от поверхности и подпись. Клик ныряет в
+ * диораму. Счётчик показывает, сколько факторов места уже перевёрнуто.
+ */
+function LocationPin({ location, radius }) {
+    const enterLocation = useStore((s) => s.enterLocation);
+    const reversed = useStore((s) => location.factors.filter((f) => s.reversedFactors[f]).length);
+    const [hovered, setHovered] = useState(false);
+    const groupRef = useRef();
+    const scaleRef = useRef();
+    const worldPos = useMemo(() => new THREE.Vector3(), []);
+    const toCamera = useMemo(() => new THREE.Vector3(), []);
+
+    const { position, quaternion } = useMemo(() => {
+        const pos = latLonToVec3(location.lat, location.lon, radius + 0.9);
+        return { position: pos.toArray(), quaternion: surfaceQuaternion(pos, new THREE.Quaternion()) };
+    }, [location, radius]);
+
+    useFrame((state, delta) => {
+        const group = groupRef.current;
+        if (!group) return;
+        // На обратной стороне планеты подпись прячется, как и город за горизонтом
+        group.getWorldPosition(worldPos);
+        toCamera.copy(state.camera.position).sub(worldPos);
+        group.visible = worldPos.dot(toCamera) > -radius * 0.2;
+        const s = scaleRef.current;
+        if (s) {
+            const target = hovered ? 1.25 : 1;
+            s.scale.setScalar(THREE.MathUtils.damp(s.scale.x, target, 8, delta));
+        }
+    });
+
+    const onOver = (e) => {
+        e.stopPropagation();
+        setHovered(true);
+        document.body.style.cursor = 'pointer';
+    };
+    const onOut = () => {
+        setHovered(false);
+        document.body.style.cursor = 'auto';
+    };
+
+    return (
+        <group ref={groupRef} position={position} quaternion={quaternion}>
+            <mesh raycast={() => null}>
+                <cylinderGeometry args={[0.012, 0.012, 1.7, 6]} />
+                <meshBasicMaterial color={location.accent} transparent opacity={0.55} toneMapped={false} />
+            </mesh>
+            <mesh position={[0, -0.84, 0]} rotation={[-Math.PI / 2, 0, 0]} raycast={() => null}>
+                <ringGeometry args={[0.16, 0.22, 32]} />
+                <meshBasicMaterial color={location.accent} transparent opacity={0.8} toneMapped={false} side={THREE.DoubleSide} />
+            </mesh>
+            <Billboard position={[0, 0.95, 0]}>
+                <group
+                    ref={scaleRef}
+                    onClick={(e) => { e.stopPropagation(); enterLocation(location.id); }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onPointerOver={onOver}
+                    onPointerOut={onOut}
+                >
+                    <mesh>
+                        <planeGeometry args={[3.3, 1.05]} />
+                        <meshBasicMaterial color="#000000" transparent opacity={hovered ? 0.72 : 0.5} depthWrite={false} />
+                    </mesh>
+                    <mesh position={[-1.58, 0, 0.001]} raycast={() => null}>
+                        <planeGeometry args={[0.06, 1.05]} />
+                        <meshBasicMaterial color={location.accent} toneMapped={false} />
+                    </mesh>
+                    <Text
+                        font="/Roboto-Regular.ttf"
+                        position={[-1.4, 0.16, 0.01]}
+                        fontSize={0.34}
+                        letterSpacing={0.12}
+                        color="#ffffff"
+                        anchorX="left"
+                        anchorY="middle"
+                        raycast={() => null}
+                    >
+                        {location.title.toUpperCase()}
+                    </Text>
+                    <Text
+                        font="/Roboto-Regular.ttf"
+                        position={[-1.4, -0.23, 0.01]}
+                        fontSize={0.2}
+                        color={location.accent}
+                        fillOpacity={0.85}
+                        anchorX="left"
+                        anchorY="middle"
+                        raycast={() => null}
+                    >
+                        {`${location.place} · ${reversed}/${location.factors.length}`}
+                    </Text>
+                </group>
+            </Billboard>
+        </group>
+    );
+}
 
 function FactorField({ factors }) {
     return (
@@ -429,6 +465,9 @@ export default function Planet() {
     const stage = useStore((s) => s.stage);
     const reversedFactors = useStore((s) => s.reversedFactors);
     const setActiveFactor = useStore((s) => s.setActiveFactor);
+    const enterLocation = useStore((s) => s.enterLocation);
+    // Ледники на карте — вход в Арктику: сам фактор живёт в локации
+    const openArctic = useCallback(() => enterLocation('arctic'), [enterLocation]);
 
     const planetGroup = useRef();
     const sunDir = useRef(new THREE.Vector3(1, 0.32, 0).normalize());
@@ -443,7 +482,7 @@ export default function Planet() {
         // с Ближним Востоком оказывалась у самого лимба, где проекция сжимает
         // точки в кучу. Доворот до 205° ставит в центр ~65° в.д. — материки
         // от Рима до Токио умещаются в диске без давки.
-        const targetY = isNature ? 0 : CITY_SPIN;
+        const targetY = isNature ? NATURE_SPIN : CITY_SPIN;
 
         if (firstSpin.current) {
             firstSpin.current = false;
@@ -498,22 +537,16 @@ export default function Planet() {
                     <NatureLayer
                         radius={R}
                         reversedFactors={reversedFactors}
-                        setActiveFactor={setActiveFactor}
+                        setActiveFactor={openArctic}
                         active={isNature}
                     />
 
-                    <CityLayer
-                        radius={R}
-                        reversedFactors={reversedFactors}
-                        setActiveFactor={setActiveFactor}
-                        active={!isNature}
-                    />
+                    <CityLayer radius={R} reversedFactors={reversedFactors} />
 
                     {isNature && (
                         <>
                             <AuroraCurtain pole="north" faded={!!reversedFactors.aurora} />
                             <AuroraCurtain pole="south" faded={!!reversedFactors.aurora} />
-                            <InterferenceRings isolated={!!reversedFactors.interference} />
                         </>
                     )}
 
@@ -535,6 +568,9 @@ export default function Planet() {
                     )}
 
                     <FactorField factors={isNature ? NATURE_FACTORS : CIVILISATION_FACTORS} />
+                    {locationsForStage(stage).map((location) => (
+                        <LocationPin key={location.id} location={location} radius={R} />
+                    ))}
                 </group>
             </group>
         </group>

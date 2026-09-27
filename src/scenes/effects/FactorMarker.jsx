@@ -25,6 +25,9 @@ export default function FactorMarker({
     labelOffset = -0.72,
     hitRadius = 2.45,
     theme = 'dark',
+    // В диорамах метку заслоняют деревья и башни: рисуем её поверх сцены и
+    // с плотным контуром, чтобы подпись читалась и на небе, и на фасадах
+    onTop = false,
 }) {
     const reversed = useStore((s) => !!s.reversedFactors[factorId]);
     const setActiveFactor = useStore((s) => s.setActiveFactor);
@@ -42,6 +45,8 @@ export default function FactorMarker({
     // белому остаётся белой, и метка пропадает. Там метка рисуется краской.
     const light = theme === 'light';
     const blending = light ? THREE.NormalBlending : THREE.AdditiveBlending;
+    const depthTest = !onTop;
+    const order = onTop ? 20 : 0;
 
     useFrame((state, delta) => {
         const t = state.clock.elapsedTime;
@@ -87,12 +92,12 @@ export default function FactorMarker({
             onPointerOut={onOut}
         >
             {/* Ядро: маленькое и очень яркое — его подхватывает свечение */}
-            <mesh ref={coreRef} scale={scale}>
+            <mesh ref={coreRef} scale={scale} renderOrder={order}>
                 <sphereGeometry args={[0.085, 12, 10]} />
-                <meshBasicMaterial color={tone} transparent opacity={0.9} toneMapped={false} depthWrite={false} />
+                <meshBasicMaterial color={tone} transparent opacity={0.9} toneMapped={false} depthWrite={false} depthTest={depthTest} />
             </mesh>
 
-            <sprite ref={haloRef} scale={scale}>
+            <sprite ref={haloRef} scale={scale} renderOrder={order}>
                 <spriteMaterial
                     map={tex}
                     color={tone}
@@ -101,12 +106,13 @@ export default function FactorMarker({
                     depthWrite={false}
                     toneMapped={false}
                     blending={blending}
+                    depthTest={depthTest}
                 />
             </sprite>
 
             {/* Визир: два тонких кольца, повёрнутых к камере */}
             <Billboard>
-                <mesh ref={ringRef} scale={scale} raycast={() => null}>
+                <mesh ref={ringRef} scale={scale} raycast={() => null} renderOrder={order}>
                     <ringGeometry args={[0.38 * scale, 0.405 * scale, 64]} />
                     <meshBasicMaterial
                         color={tone}
@@ -114,11 +120,12 @@ export default function FactorMarker({
                         opacity={0.4}
                         side={THREE.DoubleSide}
                         depthWrite={false}
+                        depthTest={depthTest}
                         toneMapped={false}
                         blending={blending}
                     />
                 </mesh>
-                <mesh ref={outerRingRef} scale={scale} raycast={() => null}>
+                <mesh ref={outerRingRef} scale={scale} raycast={() => null} renderOrder={order}>
                     <ringGeometry args={[0.62 * scale, 0.632 * scale, 64, 1, 0, Math.PI * 1.35]} />
                     <meshBasicMaterial
                         color={tone}
@@ -126,6 +133,7 @@ export default function FactorMarker({
                         opacity={0.16}
                         side={THREE.DoubleSide}
                         depthWrite={false}
+                        depthTest={depthTest}
                         toneMapped={false}
                         blending={blending}
                     />
@@ -150,8 +158,10 @@ export default function FactorMarker({
                     anchorX="center"
                     anchorY="top"
                     outlineColor={theme === 'light' ? '#ffffff' : '#000000'}
-                    outlineWidth={0.014 * scale}
-                    outlineOpacity={0.6}
+                    outlineWidth={(onTop ? 0.045 : 0.014) * scale}
+                    outlineOpacity={onTop ? 0.85 : 0.6}
+                    renderOrder={order + 1}
+                    material-depthTest={depthTest}
                     raycast={() => null}
                 >
                     {reversed ? (reverseLabel || label) : label}

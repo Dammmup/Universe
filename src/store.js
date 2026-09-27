@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { newlyCompleted } from './data/scenarios';
 
 // Этапы (масштабы):
 // 0: Сингулярность (Big Bang)
@@ -42,6 +43,7 @@ const enterStage = (stage, state) => ({
     hasPlayedBang: state.hasPlayedBang || stage > 0,
     activeFactorId: null,
     bodyRegion: null,
+    location: null,
     approachingEarth: false,
     // На Земле сначала киношный кадр, облёт включается, когда камера доехала
     freeLook: stage !== 2 && stage !== 3,
@@ -59,15 +61,48 @@ export const useStore = create((set, get) => ({
     toggleReverse: () => set((state) => {
         if (!state.activeFactorId) return state;
 
+        const reversedFactors = {
+            ...state.reversedFactors,
+            [state.activeFactorId]: !state.reversedFactors[state.activeFactorId]
+        };
+
+        // Сценарий срабатывает один раз за путь: иначе, щёлкая один фактор
+        // туда-обратно, зритель получал бы одно и то же окно раз за разом
+        const fresh = newlyCompleted(reversedFactors, state.discoveredScenarios);
+        if (!fresh.length) return { reversedFactors };
+
+        const discoveredScenarios = { ...state.discoveredScenarios };
+        fresh.forEach((id) => { discoveredScenarios[id] = true; });
         return {
-            reversedFactors: {
-                ...state.reversedFactors,
-                [state.activeFactorId]: !state.reversedFactors[state.activeFactorId]
-            }
+            reversedFactors,
+            discoveredScenarios,
+            scenarioQueue: [...state.scenarioQueue, ...fresh],
         };
     }),
     isFactorReversed: (id) => Boolean(useStore.getState().reversedFactors[id]),
     clearFactor: () => set({ activeFactorId: null }),
+
+    // ─── Сценарии мира (data/scenarios.js) ───────────────────────────────────
+    discoveredScenarios: {},
+    // Очередь окон: одно переключение может собрать сразу несколько миров
+    scenarioQueue: [],
+    dismissScenario: () => set((state) => ({ scenarioQueue: state.scenarioQueue.slice(1) })),
+
+    // ─── Локации мезо-уровней (data/locations.js) ────────────────────────────
+    // null — глобус-карта; иначе открыта диорама локации. Вход и выход накрыты
+    // вуалью: планета и местность — разные масштабы, склейка между ними резала бы глаз.
+    location: null,
+    enterLocation: (id) => {
+        const state = get();
+        if (state.shift || state.approachingEarth || state.location === id) return;
+        if (state.stage !== 2 && state.stage !== 3) return;
+        get().beginShift('dive', { type: 'location', id });
+    },
+    leaveLocation: () => {
+        const state = get();
+        if (state.shift || !state.location) return;
+        get().beginShift('ascend', { type: 'location', id: null });
+    },
 
     // Выбранная область тела на антропо-уровне. null — фигура целиком в кадре,
     // видны только названия областей; с выбором камера подъезжает к области и
@@ -103,6 +138,9 @@ export const useStore = create((set, get) => ({
         const commit = state.shift?.commit;
         if (!commit) return state;
         if (commit.type === 'earthArrive') return { approachingEarth: false };
+        if (commit.type === 'location') {
+            return { location: commit.id, activeFactorId: null, freeLook: false };
+        }
         return enterStage(commit.to, state);
     }),
 
@@ -130,6 +168,13 @@ export const useStore = create((set, get) => ({
             return;
         }
 
+        // Из диорамы слой меняется под вуалью: камера стоит у земли, и
+        // доворот планеты здесь показать не на чем
+        if (state.location && (from === 2 || from === 3)) {
+            get().beginShift(from === 2 ? 'ascend' : veilKindFor(from, to), { type: 'stage', to });
+            return;
+        }
+
         // Природа → город: сцена та же, планета сама доворачивается к Азии
         if (from === 2) {
             set((s) => ({ ...enterStage(3, s) }));
@@ -148,6 +193,12 @@ export const useStore = create((set, get) => ({
 
         if (state.approachingEarth) {
             set((s) => ({ ...enterStage(1, s) }));
+            return;
+        }
+
+        // Шаг назад из локации — сначала обратно на карту своего слоя
+        if (state.location) {
+            get().leaveLocation();
             return;
         }
 
@@ -178,7 +229,10 @@ export const useStore = create((set, get) => ({
         hasPlayedBang: false,
         activeFactorId: null,
         bodyRegion: null,
+        location: null,
         reversedFactors: {},
+        discoveredScenarios: {},
+        scenarioQueue: [],
         approachingEarth: false,
         freeLook: true,
         shift: null,

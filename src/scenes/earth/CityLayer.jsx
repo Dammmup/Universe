@@ -1,8 +1,7 @@
 import React, { useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { CITIES, LABELLED_CITIES, TRADE_ROUTES, findCity } from '../../data/geography';
+import { CITIES, TRADE_ROUTES, findCity } from '../../data/geography';
 import { greatCircleArc, latLonToVec3, seededRandom, surfaceQuaternion } from '../../lib/geo';
 
 const DEG = Math.PI / 180;
@@ -205,70 +204,11 @@ function TradeRoutes({ radius, isolated }) {
     );
 }
 
-/** Подписи мегаполисов, скрывающиеся за горизонтом планеты. */
-function CityLabels({ radius, onSelect }) {
-    const groupRef = useRef();
-    const cameraDir = useMemo(() => new THREE.Vector3(), []);
-    const worldPos = useMemo(() => new THREE.Vector3(), []);
-
-    const labels = useMemo(
-        () => LABELLED_CITIES.map((name) => findCity(name)).filter(Boolean),
-        [],
-    );
-
-    useFrame((state) => {
-        const group = groupRef.current;
-        if (!group) return;
-        group.children.forEach((child) => {
-            child.getWorldPosition(worldPos);
-            cameraDir.copy(state.camera.position).sub(worldPos);
-            // Подпись видна, только если её точка обращена к камере
-            child.visible = worldPos.dot(cameraDir) > -radius * 0.15;
-        });
-    });
-
-    return (
-        <group ref={groupRef}>
-            {labels.map((city) => {
-                const pos = latLonToVec3(city.lat, city.lon, radius + 0.75);
-                return (
-                    <group
-                        key={city.name}
-                        position={[pos.x, pos.y, pos.z]}
-                        onClick={(e) => { e.stopPropagation(); onSelect('urbanization'); }}
-                        onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-                        onPointerOut={() => { document.body.style.cursor = 'auto'; }}
-                    >
-                        <mesh>
-                            <sphereGeometry args={[0.06, 10, 8]} />
-                            <meshBasicMaterial color="#ffe9b8" />
-                        </mesh>
-                        {/* Billboard: слой вращается вместе с планетой, подпись всегда лицом к камере */}
-                        <Billboard position={[0, 0.26, 0]}>
-                            <Text
-                                font="/Roboto-Regular.ttf"
-                                fontSize={0.3}
-                                color="#ffeecc"
-                                anchorX="center"
-                                anchorY="bottom"
-                                outlineColor="black"
-                                outlineWidth={0.045}
-                            >
-                                {city.name}
-                            </Text>
-                        </Billboard>
-                    </group>
-                );
-            })}
-        </group>
-    );
-}
-
 /**
  * Цивилизационный слой планеты: застройка мегаполисов, ночное свечение,
- * торговые маршруты и подписи городов.
+ * торговые маршруты. Подписи городов заменили точки локаций (Planet.jsx).
  */
-export default function CityLayer({ radius, reversedFactors, setActiveFactor, active }) {
+export default function CityLayer({ radius, reversedFactors }) {
     const decayed = !!reversedFactors.urbanization;
     const ruined = !!reversedFactors.progress || !!reversedFactors.skyline;
     const isolated = !!reversedFactors.trade;
@@ -283,7 +223,6 @@ export default function CityLayer({ radius, reversedFactors, setActiveFactor, ac
                 nightLights={nightLights}
             />
             <TradeRoutes radius={radius} isolated={isolated} />
-            {active && <CityLabels radius={radius} onSelect={setActiveFactor} />}
         </group>
     );
 }
