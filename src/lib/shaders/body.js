@@ -19,12 +19,14 @@ const COMMON_VERTEX = /* glsl */ `
 attribute vec2 aMuscle;
 attribute vec3 aCenter;
 attribute vec3 aAxis;
+attribute float aEdge;
 uniform vec3 uGroup[${11}];
 uniform float uTime;
 varying vec3 vBodyPos;
 varying vec2 vMuscle;
 varying vec3 vCenter;
 varying vec3 vAxis;
+varying float vEdge;
 `;
 
 function patchVertex(shader) {
@@ -46,7 +48,8 @@ function patchVertex(shader) {
             vBodyPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
             vMuscle = aMuscle;
             vCenter = aCenter;
-            vAxis = aAxis;`);
+            vAxis = aAxis;
+            vEdge = aEdge;`);
 }
 
 /** Uniform групп мышц: общий для кожи и мышц — бицепс растёт и под кожей. */
@@ -209,6 +212,7 @@ export function createMuscleMaterial(uniforms, { clippingPlanes } = {}) {
                 varying vec2 vMuscle;
                 varying vec3 vCenter;
                 varying vec3 vAxis;
+                varying float vEdge;
                 uniform float uOssify;
                 uniform float uCramp;
                 uniform float uFatigue;
@@ -231,6 +235,9 @@ export function createMuscleMaterial(uniforms, { clippingPlanes } = {}) {
                 // мышц соседние вершины давали зубчатые белые пятна
                 float tendon = isMuscle ? smoothstep(0.985, 1.0, abs(vMuscle.y)) * 0.3 : 0.0;
                 muscle = mix(muscle, vec3(0.92, 0.88, 0.8), clamp(tendon, 0.0, 1.0));
+                // Борозда между мышцами: тёмная щель фасции вместо обрыва волокон
+                float groove = smoothstep(0.25, 0.8, vEdge);
+                muscle = mix(muscle, vec3(0.2, 0.03, 0.05), groove * 0.7);
                 // Судорога: мышца темнеет до багрового
                 muscle = mix(muscle, vec3(0.32, 0.04, 0.16), uCramp * 0.6);
                 // Истощение: бледная, обескровленная

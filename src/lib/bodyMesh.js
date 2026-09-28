@@ -18,6 +18,7 @@ function toGeometry(data) {
     g.setAttribute('aMuscle', new THREE.BufferAttribute(data.muscle, 2));
     g.setAttribute('aCenter', new THREE.BufferAttribute(data.centers, 3));
     g.setAttribute('aAxis', new THREE.BufferAttribute(data.axes, 3));
+    g.setAttribute('aEdge', new THREE.BufferAttribute(data.edge, 1));
     g.setIndex(new THREE.BufferAttribute(data.index, 1));
     g.computeBoundingSphere();
     return g;

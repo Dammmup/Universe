@@ -9,6 +9,6 @@ self.onmessage = (event) => {
     const mesh = buildBodyMesh(variant);
     self.postMessage({ variant, ...mesh }, [
         mesh.positions.buffer, mesh.normals.buffer, mesh.muscle.buffer,
-        mesh.centers.buffer, mesh.axes.buffer, mesh.index.buffer,
+        mesh.centers.buffer, mesh.axes.buffer, mesh.edge.buffer, mesh.index.buffer,
     ]);
 };

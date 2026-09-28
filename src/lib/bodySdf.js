@@ -193,6 +193,8 @@ function musclePrimitives() {
     add('calf', (s) => ellipsoid([s * 0.43, -2.08, -0.1], [0.1, 0.34, 0.13]));
     add('calf', (s) => ellipsoid([s * 0.33, -2.12, -0.1], [0.1, 0.3, 0.13]));
     add('calf', (s) => ellipsoid([s * 0.41, -2.4, 0.07], [0.06, 0.45, 0.06]));
+    // Номер мышцы: у группы «бедро» четыре мышцы, а граница нужна между каждой
+    M.forEach((m, i) => { m.id = i; });
     return M;
 }
 
@@ -272,7 +274,7 @@ export function makeBodyField(variant = 'skin') {
         }
         if (!best) return null;
         const along = ((x - best.c[0]) * best.axis[0] + (y - best.c[1]) * best.axis[1] + (z - best.c[2]) * best.axis[2]) / best.len;
-        return { group: best.group, c: best.c, axis: best.axis, along };
+        return { id: best.id, group: best.group, c: best.c, axis: best.axis, along };
     };
 
     return { field, muscleAt };
@@ -376,6 +378,7 @@ export function buildBodyMesh(variant = 'skin', h = 0.028) {
     const centers = new Float32Array(count * 3);
     const axes = new Float32Array(count * 3);
     const e = 0.006;
+    const ids = new Int32Array(count).fill(-1);
     for (let v = 0; v < count; v += 1) {
         const x = positions[v * 3]; const y = positions[v * 3 + 1]; const z = positions[v * 3 + 2];
         let gx = field(x + e, y, z) - field(x - e, y, z);
@@ -386,6 +389,7 @@ export function buildBodyMesh(variant = 'skin', h = 0.028) {
         normals[v * 3] = gx; normals[v * 3 + 1] = gy; normals[v * 3 + 2] = gz;
         const m = muscleAt(x, y, z);
         if (m) {
+            ids[v] = m.id;
             muscle[v * 2] = m.group;
             muscle[v * 2 + 1] = Math.max(-1, Math.min(1, m.along));
             centers.set(m.c, v * 3);
@@ -396,5 +400,29 @@ export function buildBodyMesh(variant = 'skin', h = 0.028) {
         }
     }
 
-    return { positions, normals, muscle, centers, axes, index: new Uint32Array(index) };
+    // Межмышечные борозды: вершины, у которых сосед по треугольнику лежит на
+    // другой мышце (или на теле), — это граница. Без неё волокна соседних
+    // мышц обрывались зубчатым краем; в атласе на этом месте — тёмная щель
+    // фасции. Метка размывается по соседям, чтобы щель была мягкой.
+    let edge = new Float32Array(count);
+    for (let f = 0; f < index.length; f += 3) {
+        const a = index[f]; const b = index[f + 1]; const c = index[f + 2];
+        if (ids[a] !== ids[b] || ids[b] !== ids[c]) {
+            edge[a] = 1; edge[b] = 1; edge[c] = 1;
+        }
+    }
+    for (let pass = 0; pass < 2; pass += 1) {
+        const sum = new Float32Array(count);
+        const cnt = new Float32Array(count);
+        for (let f = 0; f < index.length; f += 3) {
+            const tri = [index[f], index[f + 1], index[f + 2]];
+            const avg = (edge[tri[0]] + edge[tri[1]] + edge[tri[2]]) / 3;
+            tri.forEach((v) => { sum[v] += avg; cnt[v] += 1; });
+        }
+        const next = new Float32Array(count);
+        for (let v = 0; v < count; v += 1) next[v] = cnt[v] ? (edge[v] + sum[v] / cnt[v]) / 2 : edge[v];
+        edge = next;
+    }
+
+    return { positions, normals, muscle, centers, axes, edge, index: new Uint32Array(index) };
 }
