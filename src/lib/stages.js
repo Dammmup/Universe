@@ -36,6 +36,6 @@ export const STAGE_TITLES = {
     [STAGE.SOCIETY]: { kicker: 'Мезо-уровень 3', title: 'Общество' },
     [STAGE.HUMAN]: { kicker: 'Антропо-уровень', title: 'Человек' },
     [STAGE.MIND]: { kicker: 'Антропо-уровень · глубже', title: 'Разум' },
-    [STAGE.CELL]: { kicker: 'Микро-уровень', title: 'Клетка и сознание' },
+    [STAGE.CELL]: { kicker: 'Микро-уровень', title: 'Клетка' },
     [STAGE.FINALE]: { kicker: 'Путь пройден', title: 'Итог' },
 };

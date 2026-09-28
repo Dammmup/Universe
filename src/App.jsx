@@ -125,7 +125,7 @@ const STAGE_SHOTS = {
     [MIND_STAGE]: { pos: [0, 1.4, 15.5], look: [0, 0, 0], fov: 50 },
     // Точка взгляда опущена ниже центра клетки: так она сидит выше в кадре,
     // и нижние подписи не наезжают на строку интерфейса
-    [CELL_STAGE]: { pos: [0, 1.2, 11.2], look: [0, -0.75, 0], fov: 58 },
+    [CELL_STAGE]: { pos: [0, 0.6, 12.4], look: [0, -1.45, 0], fov: 58 },
     // Финал: вся нить масштабов целиком в кадре
     [FINALE_STAGE]: { pos: [0, -0.1, 9.6], look: [0, 0.1, 0], fov: 46 },
 };
@@ -737,10 +737,10 @@ export default function App() {
                 {stage === CELL_STAGE && (
                     <div className="text-white/70 animate-fade-in relative z-50 pointer-events-auto">
                         <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2 text-fuchsia-400">
-                            Микро-уровень: Рождение Сознания
+                            Микро-уровень: клетка
                         </p>
                         <p className="text-xs text-white/40 mb-4 font-light">
-                            Внутри клеток и синапсов. {isTouch ? 'Свайп дальше — к итогу пути. Двумя пальцами — зум.' : 'Скролль дальше — к итогу пути. Ctrl + колесо приближает.'}
+                            Внутри одной клетки: мембрана, ДНК, энергия, синапс. {isTouch ? 'Свайп дальше — к итогу пути. Двумя пальцами — зум.' : 'Скролль дальше — к итогу пути. Ctrl + колесо приближает.'}
                         </p>
                         <button
                             onClick={nextStage}

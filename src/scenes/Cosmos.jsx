@@ -16,6 +16,7 @@ import {
     venusTexture,
 } from '../lib/planetTextures';
 import EarthGlobe from './earth/EarthGlobe';
+import FactorMarker from './effects/FactorMarker';
 
 const MOON_TEXTURE = '/textures/planets/moon_1024.jpg';
 
@@ -672,8 +673,8 @@ function OrbitingPlanet({
             </group>
 
             <BillboardText
-                position={[0, radius + 0.85, 0]}
-                fontSize={Math.min(0.85, Math.max(0.32, radius * 0.3))}
+                position={[0, radius + 1.2, 0]}
+                fontSize={Math.min(1.3, Math.max(0.95, radius * 0.4))}
                 color={labelColor}
                 anchorX="center"
                 anchorY="bottom"
@@ -682,8 +683,8 @@ function OrbitingPlanet({
                 {label}
             </BillboardText>
             <BillboardText
-                position={[0, radius + 0.35, 0]}
-                fontSize={Math.min(0.6, Math.max(0.24, radius * 0.2))}
+                position={[0, radius + 0.25, 0]}
+                fontSize={Math.min(0.9, Math.max(0.62, radius * 0.28))}
                 color={reversed ? '#8fd0ff' : '#ffb066'}
                 anchorX="center"
                 anchorY="bottom"
@@ -1017,53 +1018,32 @@ function Comet({ slowed, onSelect }) {
     );
 }
 
-function FloatingFactor({
-    position, factorId, label, reverseLabel, color, reverseColor, reversed, onSelect, shape = 'octahedron',
-}) {
+/**
+ * Метафизический фактор в глубоком космосе. Прежде это был проволочный
+ * многогранник в прозрачном шаре — форма из отладки, выпадавшая из общего
+ * языка меток. Теперь та же метка, что везде, только крупнее под масштаб
+ * Солнечной системы.
+ */
+function FloatingFactor({ position, factorId, label, reverseLabel, color, reverseColor }) {
     const groupRef = useRef();
-    const meshRef = useRef();
-
-    useFrame((state, delta) => {
+    useFrame((state) => {
         if (groupRef.current) {
-            groupRef.current.position.y = position[1]
-                + Math.sin(state.clock.elapsedTime * 0.6 + position[0]) * 2;
-        }
-        if (meshRef.current) {
-            meshRef.current.rotation.x += delta * 0.4;
-            meshRef.current.rotation.y += delta * 0.6;
+            groupRef.current.position.y = position[1] + Math.sin(state.clock.elapsedTime * 0.6 + position[0]) * 2;
         }
     });
-
-    const tone = reversed ? reverseColor : color;
-
     return (
-        <group
-            ref={groupRef}
-            position={position}
-            onClick={(e) => { e.stopPropagation(); onSelect(factorId); }}
-            onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-            onPointerOut={() => { document.body.style.cursor = 'auto'; }}
-        >
-            <mesh>
-                <sphereGeometry args={[3.5, 12, 10]} />
-                <meshBasicMaterial color={tone} transparent opacity={0.04} depthWrite={false} />
-            </mesh>
-            <mesh ref={meshRef}>
-                {shape === 'octahedron' && <octahedronGeometry args={[1.5, 0]} />}
-                {shape === 'tetrahedron' && <tetrahedronGeometry args={[1.5, 0]} />}
-                {shape === 'icosahedron' && <icosahedronGeometry args={[1.5, 0]} />}
-                <meshBasicMaterial color={tone} wireframe />
-            </mesh>
-            <BillboardText
-                position={[0, 3, 0]}
-                fontSize={0.62}
-                color={tone}
-                anchorX="center"
-                anchorY="bottom"
-                outlineWidth={0.05}
-            >
-                {reversed ? reverseLabel : label}
-            </BillboardText>
+        <group ref={groupRef} position={position}>
+            <FactorMarker
+                position={[0, 0, 0]}
+                factorId={factorId}
+                label={label}
+                reverseLabel={reverseLabel}
+                color={color}
+                reverseColor={reverseColor}
+                scale={4.2}
+                labelOffset={-0.8}
+                hitRadius={4}
+            />
         </group>
     );
 }
@@ -1217,8 +1197,6 @@ export default function Cosmos() {
                 reverseLabel="ИЗБЫТОК"
                 color="#6644ff"
                 reverseColor="#ffaa00"
-                reversed={!!reversedFactors.void}
-                onSelect={setActiveFactor}
             />
             <FloatingFactor
                 position={[100, -10, 30]}
@@ -1227,9 +1205,6 @@ export default function Cosmos() {
                 reverseLabel="ОГРАНИЧЕННОСТЬ"
                 color="#00ccff"
                 reverseColor="#ff4488"
-                reversed={!!reversedFactors.infinity}
-                onSelect={setActiveFactor}
-                shape="icosahedron"
             />
             <FloatingFactor
                 position={[-40, 26, -70]}
@@ -1238,8 +1213,6 @@ export default function Cosmos() {
                 reverseLabel="ПАРАЗИТИЗМ"
                 color="#33ff99"
                 reverseColor="#88bb33"
-                reversed={!!reversedFactors.symbiosis}
-                onSelect={setActiveFactor}
             />
         </group>
     );

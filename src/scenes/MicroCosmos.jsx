@@ -514,9 +514,7 @@ function SynapseBridge({ reversed }) {
                     opacity={reversed ? 0.3 : 1}
                 />
             </instancedMesh>
-            <Label position={[0, -2.15, 0.2]} color={reversed ? '#999' : '#ffe96d'} size={0.18}>
-                {reversed ? 'РАЗРЫВ СИНАПСА' : 'СИНАПС'}
-            </Label>
+            {/* Подпись даёт метка фактора «СИНАПС» — вторая такая же рядом читалась как сбой */}
         </group>
     );
 }
