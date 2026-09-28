@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Html } from '@react-three/drei';
+import { OrbitControls, Html, PerformanceMonitor } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore } from './store';
 import { locationById } from './data/locations';
@@ -414,6 +414,13 @@ export default function App() {
 
     // Сенсорный экран меняет и управление, и формулировки подсказок: «скролль»
     // и «наведи курсор» на телефоне ничего не значат
+    // Режим качества: высокий по умолчанию, низкий — если кадры проседают
+    // (PerformanceMonitor ниже) или задан вручную: ?quality=low
+    const [quality, setQuality] = useState(() => (
+        typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('quality') === 'low' ? 'low' : 'high'
+    ));
+    const lowQuality = quality === 'low';
+
     const [isTouch] = useState(() => (typeof window === 'undefined'
         ? false
         : (window.matchMedia?.('(pointer: coarse)').matches ?? 'ontouchstart' in window)));
@@ -600,9 +607,9 @@ export default function App() {
                 <Canvas
                     /* Тени нужны только диорамам локаций. PCFSoft в three 0.183
                        объявлен устаревшим — берём обычный PCF */
-                    shadows="percentage"
+                    shadows={lowQuality ? false : 'percentage'}
                     camera={{ position: [0, 0, 5], fov: 60, near: 0.1, far: 1400 }}
-                    dpr={[1, 1.75]}
+                    dpr={lowQuality ? [0.75, 1] : [1, 1.75]}
                     gl={{ antialias: true, powerPreference: 'high-performance', stencil: false }}
                     onCreated={onCanvasCreated}
                     /* Клик мимо всего — выход из области тела обратно к фигуре */
@@ -682,8 +689,11 @@ export default function App() {
                         сам фон проходит порог и размывает тело в молоко */}
                     {/* В дневных диорамах небо само по себе яркое: порог выше,
                         чтобы светились огни и лава, а не весь горизонт */}
+                    {/* Слабая машина: если кадров стабильно мало, падают
+                        разрешение, тени и свечение — сцена остаётся плавной */}
+                    <PerformanceMonitor flipflops={2} onDecline={() => setQuality('low')} onFallback={() => setQuality('low')} />
                     <PostFX
-                        bloomStrength={stage === HUMAN_STAGE ? 0.32 : (location ? 0.42 : 0.5)}
+                        bloomStrength={lowQuality ? 0 : (stage === HUMAN_STAGE ? 0.32 : (location ? 0.42 : 0.5))}
                         bloomThreshold={stage === HUMAN_STAGE ? 1.15 : (location ? 0.95 : 0.85)}
                         vignette={stage === HUMAN_STAGE ? 0.16 : (location ? 0.36 : 0.44)}
                     />
