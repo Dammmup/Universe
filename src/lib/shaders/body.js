@@ -149,6 +149,13 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
                 float fold = smoothstep(0.012, 0.0, abs(length(vec2(abs(P.x) - 0.02, P.y - 3.2)) - 0.1)) * step(3.02, P.y) * step(P.y, 3.17) * step(0.3, P.z);
                 diffuseColor.rgb *= 1.0 - uWrinkle * (forehead * lines + crows + fold * 0.8 + hands * lines) * 0.5;
 
+                // Нижний край грудных: тень складки, как на лепном торсе
+                vec2 pq = vec2(abs(P.x) - 0.3, P.y - 2.02);
+                pq = mat2(cos(0.3), sin(0.3), -sin(0.3), cos(0.3)) * pq;
+                float pe = length(pq / vec2(0.36, 0.22));
+                float pecCrease = smoothstep(0.14, 0.0, abs(pe - 1.0)) * step(pq.y, -0.02) * step(0.15, P.z) * smoothstep(0.02, 0.06, abs(P.x));
+                diffuseColor.rgb *= 1.0 - pecCrease * 0.22;
+
                 // Брови, губы и короткие волосы: без них голова читалась манекеном
                 float brow = smoothstep(0.016, 0.0, abs(P.y - 3.372 - 0.015 * sin(abs(P.x) * 14.0)))
                     * smoothstep(0.23, 0.2, abs(P.x)) * smoothstep(0.04, 0.07, abs(P.x)) * step(0.28, P.z);

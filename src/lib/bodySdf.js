@@ -210,8 +210,9 @@ function musclePrimitives() {
 
 // Линия рта — две половины с приподнятыми уголками: лёгкая улыбка вместо
 // прямой щели, которая делала лицо напряжённым
-const EYE_L = ellipsoid([-0.12, 3.279, 0.35], [0.06, 0.024, 0.05], [0, 0, 0.08]);
-const EYE_R = ellipsoid([0.12, 3.279, 0.35], [0.06, 0.024, 0.05], [0, 0, -0.08]);
+// Мелкая щель: глубокая яма с шариком внутри выглядела пустой глазницей
+const EYE_L = ellipsoid([-0.12, 3.279, 0.37], [0.058, 0.022, 0.035], [0, 0, 0.08]);
+const EYE_R = ellipsoid([0.12, 3.279, 0.37], [0.058, 0.022, 0.035], [0, 0, -0.08]);
 // Короткая стрижка лепится шапочкой над черепом, как у манекена
 const HAIR = ellipsoid([0, 3.43, -0.07], [0.338, 0.348, 0.398]);
 const hairline = (x, z) => 3.53 + 0.03 * Math.cos(x * 9) - 0.13 * Math.min(1, Math.max(0, (Math.abs(x) - 0.14) / 0.14)) * (z > 0 ? 1 : 0) - 0.3 * Math.min(1, Math.max(0, -z / 0.35));
@@ -274,7 +275,7 @@ export function makeBodyField(variant = 'skin') {
             // Глазная щель — миндалина, а не круглая яма: веки прикрывают
             // радужку сверху и снизу, и взгляд спокойный, а не испуганный
             const eye = Math.min(sdEllipsoid(x, y, z, EYE_L), sdEllipsoid(x, y, z, EYE_R));
-            d = smax(d, -eye, 0.012);
+            d = smax(d, -eye, 0.02);
             // Линия рта между губами
             const mouth = Math.min(sdEllipsoid(x, y, z, MOUTH_L), sdEllipsoid(x, y, z, MOUTH_R));
             d = smax(d, -mouth, 0.004);

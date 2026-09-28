@@ -199,7 +199,7 @@ function Eyes({ clip }) {
     return (
         <group>
             {[-1, 1].map((s) => (
-                <group key={s} position={[s * 0.12, 3.279, 0.285]}>
+                <group key={s} position={[s * 0.12, 3.279, 0.3]}>
                     <mesh material={white} raycast={() => null}><sphereGeometry args={[0.05, 28, 20]} /></mesh>
                     <mesh material={iris} position={[0, 0, 0.042]} scale={[1, 1, 0.45]} raycast={() => null}><sphereGeometry args={[0.024, 24, 16]} /></mesh>
                     <mesh material={pupil} position={[0, 0, 0.05]} scale={[1, 1, 0.3]} raycast={() => null}><sphereGeometry args={[0.009, 12, 10]} /></mesh>
