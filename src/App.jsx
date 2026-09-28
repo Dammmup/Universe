@@ -11,6 +11,7 @@ import Onboarding from './components/Onboarding';
 import FactorModal from './components/FactorModal';
 import Echoes from './components/Echoes';
 import FinaleSummary from './components/FinaleSummary';
+import { SoundController } from './components/Sound';
 import MesoPanel from './components/MesoPanel';
 import { HumanPanel, MindPanel } from './components/HumanPanel';
 import { ScenarioJournal, ScenarioModal } from './components/Scenarios';
@@ -755,6 +756,7 @@ export default function App() {
                 {stage === FINALE_STAGE && <FinaleSummary />}
             </div>
 
+            <SoundController />
             <FactorModal />
             <Echoes />
             <ScenarioModal />

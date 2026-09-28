@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { FACTORS_DATA } from '../data/factors';
 import { placeOfFactor } from '../data/locations';
 import { SCENARIOS, SCENARIO_KINDS, scenarioById } from '../data/scenarios';
+import { SoundToggle } from './Sound';
 
 const placeOf = (factorId) => placeOfFactor(factorId)?.title ?? null;
 
@@ -95,12 +96,15 @@ export function ScenarioJournal({ light = false, hidden = false }) {
 
     return (
         <div className="absolute top-4 right-4 z-[70] flex flex-col items-end gap-2 pointer-events-none">
+            <div className="flex items-center gap-2">
+            <SoundToggle light={light} />
             <button
                 onClick={() => setOpen((v) => !v)}
                 className={`pointer-events-auto rounded-full border px-3.5 py-1.5 text-[10px] sm:text-[11px] uppercase tracking-[0.25em] backdrop-blur-md transition-colors ${chip}`}
             >
                 Миры {found}/{SCENARIOS.length}
             </button>
+            </div>
             {open && (
                 <div className="pointer-events-auto w-72 max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-2xl border border-white/15 bg-black/85 p-4 backdrop-blur-xl animate-fade-in">
                     <p className="text-[10px] uppercase tracking-[0.35em] text-white/40 mb-3">
