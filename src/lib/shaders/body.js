@@ -135,10 +135,11 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
                 // Ожог: сверху и спереди — плечи, лицо, грудь
                 float sunlit = smoothstep(1.7, 2.6, P.y) * (0.6 + 0.4 * smoothstep(-0.1, 0.4, P.z));
                 float blotch = 0.75 + 0.25 * bodyNoise(P * 6.0);
-                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.26, 0.2), uBurn * sunlit * blotch * 0.85);
+                // На мраморе ожог — рыжая патина, как у камня под вечным солнцем
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.42, 0.24), uBurn * sunlit * blotch * 0.8);
 
                 // Перегрев: вся кожа наливается красным и блестит от пота
-                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9, 0.42, 0.34), uHeat * 0.45);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95, 0.62, 0.48), uHeat * 0.35);
 
                 // Онемение: кисти бледнеют и синеют
                 float hands = smoothstep(1.02, 1.12, abs(P.x)) * smoothstep(0.25, 0.05, P.y);
@@ -177,12 +178,13 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
                 diffuseColor.rgb *= 1.0 - smoothstep(0.02, 0.0, abs(P.y - hairline)) * step(0.0, P.z) * 0.12;
 
                 // Ихтиоз: роговые пластины ромбической решёткой, как чешуя
-                vec2 sc = vec2(P.x * 13.0 + P.y * 7.0, P.x * 13.0 - P.y * 7.0) + vec2(P.z * 6.0);
+                // Кракелюр: сетка трещин искривлена шумом, как на старой глазури
+                vec2 sc = vec2(P.x * 9.0 + P.y * 5.0, P.x * 9.0 - P.y * 5.0) + vec2(P.z * 4.0) + vec2(bodyNoise(P * 3.0), bodyNoise(P * 3.0 + 5.0)) * 1.2;
                 vec2 cell = abs(fract(sc) - 0.5);
                 float border = smoothstep(0.42, 0.5, max(cell.x, cell.y));
                 float plate = bodyHash(vec3(floor(sc), 1.0));
-                vec3 scaleTone = mix(vec3(0.62, 0.55, 0.46), vec3(0.48, 0.42, 0.36), plate);
-                diffuseColor.rgb = mix(diffuseColor.rgb, scaleTone * (1.0 - border * 0.6), uScales * 0.85);
+                vec3 scaleTone = mix(vec3(0.74, 0.7, 0.64), vec3(0.56, 0.53, 0.5), plate);
+                diffuseColor.rgb = mix(diffuseColor.rgb, scaleTone * (1.0 - border * 0.4), uScales * 0.8);
 
                 // Рана на левом предплечье: заживает от концов к середине
                 vec3 wa = vec3(1.1, 0.78, 0.13);
@@ -194,12 +196,15 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
                 diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.8, 0.76), scar * uScar);`)
             .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
                 // Рецепторы касания светятся точками на ладонях и пальцах
-                vec3 rc = floor(P * 55.0);
-                float receptor = step(0.93, bodyHash(rc)) * hands;
+                vec3 rc = floor(P * 90.0);
+                float receptor = step(0.975, bodyHash(rc)) * hands;
                 float pulse = 0.5 + 0.5 * sin(uTime * 4.0 + bodyHash(rc + 3.0) * 30.0);
-                totalEmissiveRadiance += vec3(1.0, 0.55, 0.75) * receptor * pulse * uTouch * 1.6;
+                totalEmissiveRadiance += vec3(1.0, 0.55, 0.75) * receptor * pulse * uTouch * 0.9;
+                // Раскалённый камень: жар светится изнутри, пульсируя
+                float glow = 0.6 + 0.4 * sin(uTime * 1.6 + bodyNoise(P * 3.0) * 6.0);
+                totalEmissiveRadiance += vec3(1.0, 0.36, 0.12) * uHeat * glow * smoothstep(0.3, 0.8, bodyNoise(P * 4.0 + uTime * 0.2)) * 0.45;
                 // Пот при перегреве: влажные блики вспыхивают и гаснут
-                float sweat = step(0.985, bodyHash(floor(P * 70.0))) * (0.5 + 0.5 * sin(uTime * 2.0 + P.y * 10.0));
+                float sweat = step(0.995, bodyHash(floor(P * 70.0))) * (0.5 + 0.5 * sin(uTime * 2.0 + P.y * 10.0));
                 totalEmissiveRadiance += vec3(0.9, 0.9, 1.0) * sweat * uHeat * 0.6;`);
     };
     material.customProgramCacheKey = () => 'body-skin-sdf';
@@ -213,9 +218,13 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
  * работающей мышцы.
  */
 export function createMuscleMaterial(uniforms, { clippingPlanes } = {}) {
-    const material = new THREE.MeshStandardMaterial({
+    // Красный полированный камень — «экорше» в той же скульптурной гамме,
+    // что и мраморная кожа, а не сырое мясо
+    const material = new THREE.MeshPhysicalMaterial({
         color: '#b8323c',
-        roughness: 0.42,
+        roughness: 0.36,
+        clearcoat: 0.4,
+        clearcoatRoughness: 0.3,
         metalness: 0,
         clippingPlanes,
         // Мышцы лежат вплотную под кожей: сдвиг глубины не даёт им мерцать
@@ -247,18 +256,19 @@ export function createMuscleMaterial(uniforms, { clippingPlanes } = {}) {
                 bool isMuscle = vMuscle.x > 0.5;
                 vec3 q = P - vCenter;
                 float radial = length(q - vAxis * dot(q, vAxis));
-                float stripes = isMuscle ? radial * 150.0 : (P.x * 90.0 + P.y * 12.0 + P.z * 60.0);
+                float stripes = isMuscle ? radial * 320.0 : (P.x * 160.0 + P.y * 20.0 + P.z * 110.0);
                 float fiber = 0.5 + 0.5 * sin(stripes + bodyNoise(P * 22.0) * 2.4);
                 float fine = 0.5 + 0.5 * sin(stripes * 3.1);
-                vec3 muscle = mix(vec3(0.42, 0.07, 0.09), vec3(0.8, 0.21, 0.23), fiber * 0.7 + fine * 0.3);
+                // Волокна — тонкая штриховка резца, а не кольца «среза дерева»
+                vec3 muscle = mix(vec3(0.58, 0.2, 0.17), vec3(0.76, 0.34, 0.28), 0.5 + (fiber - 0.5) * 0.35 + (fine - 0.5) * 0.12);
                 // Сухожилия у концов мышцы, фасция — светлые разводы между мышцами
                 // Сухожилия — узкие светлые концы; граница мягкая, иначе на стыке
                 // мышц соседние вершины давали зубчатые белые пятна
-                float tendon = isMuscle ? smoothstep(0.985, 1.0, abs(vMuscle.y)) * 0.3 : 0.0;
+                float tendon = isMuscle ? smoothstep(0.985, 1.0, abs(vMuscle.y)) * 0.12 : 0.0;
                 muscle = mix(muscle, vec3(0.92, 0.88, 0.8), clamp(tendon, 0.0, 1.0));
                 // Борозда между мышцами: тёмная щель фасции вместо обрыва волокон
                 float groove = smoothstep(0.25, 0.8, vEdge);
-                muscle = mix(muscle, vec3(0.2, 0.03, 0.05), groove * 0.7);
+                muscle = mix(muscle, vec3(0.26, 0.08, 0.07), groove * 0.7);
                 // Судорога: мышца темнеет до багрового
                 muscle = mix(muscle, vec3(0.32, 0.04, 0.16), uCramp * 0.6);
                 // Истощение: бледная, обескровленная

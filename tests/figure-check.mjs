@@ -48,6 +48,25 @@ for (const layer of [0, 1]) {
         await page.screenshot({ path: `tests/screenshots/figure-${layer ? 'muscle' : 'skin'}-${name}.png` });
     }
 }
+// Факторы кожи на мраморе: жар и ожог, затем морщины, ихтиоз, рубцы, онемение
+await page.evaluate(() => window.realityStore.getState().setBodyLayer(0));
+await page.waitForTimeout(3000);
+const sets = {
+    'fx-heat': { thermoregulation: true, uvShield: true },
+    'fx-age': { elasticity: true, ichthyosis: true, healing: true, touch: true },
+};
+for (const [name, rev] of Object.entries(sets)) {
+    await page.evaluate((r) => window.realityStore.setState({ reversedFactors: r }), rev);
+    await page.waitForTimeout(2500);
+    await page.evaluate(() => {
+        const { camera, controls } = window.realityRenderer;
+        camera.position.set(2.6, 2.0, 3.6);
+        if (controls) { controls.target.set(0, 1.5, 0); controls.update(); } else camera.lookAt(0, 1.5, 0);
+    });
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `tests/screenshots/figure-${name}.png` });
+}
+await page.evaluate(() => window.realityStore.setState({ reversedFactors: {} }));
 console.log(JSON.stringify({ errors }));
 await browser.close();
 process.exit(errors.length ? 1 : 0);

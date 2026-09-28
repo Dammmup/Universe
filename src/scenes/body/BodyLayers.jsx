@@ -82,7 +82,7 @@ export function GhostSkin({ geometry, present }) {
     const uniforms = useMemo(() => ({ uBackdrop: { value: new THREE.Color('#e9edf4') }, uSkinAlpha: { value: 0 } }), []);
     const material = useMemo(() => {
         const m = new THREE.MeshStandardMaterial({
-            color: '#e8c3ab',
+            color: '#ece6de',
             emissive: '#553220',
             emissiveIntensity: 0.1,
             roughness: 0.34,
@@ -185,6 +185,22 @@ export function SkinLayer({ geometry, present, rev, clip, groups }) {
     );
 }
 
+let puff = null;
+/** Мягкое круглое облачко: квадратные точки пара выглядели битыми пикселями. */
+function puffTexture() {
+    if (puff) return puff;
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 64;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    puff = new THREE.CanvasTexture(c);
+    return puff;
+}
+
 /** Жар от перегретого тела: пар поднимается с плеч и головы. */
 function SkinSteam({ on, visible }) {
     const ref = useRef();
@@ -217,7 +233,7 @@ function SkinSteam({ on, visible }) {
             <bufferGeometry>
                 <bufferAttribute attach="attributes-position" args={[positions, 3]} />
             </bufferGeometry>
-            <pointsMaterial color="#ffffff" size={0.18} transparent depthWrite={false} />
+            <pointsMaterial color="#ffffff" size={0.28} map={puffTexture()} transparent depthWrite={false} />
         </points>
     );
 }
