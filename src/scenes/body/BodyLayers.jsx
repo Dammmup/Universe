@@ -186,19 +186,23 @@ export function SkinLayer({ geometry, present, rev, clip, groups }) {
     );
 }
 
-/** Глаза: белок, радужка и зрачок в глазницах — без них лицо было маской. */
+/**
+ * Глаза вылеплены в тон кожи, как у скульптуры или манекена: белки и
+ * тёмные зрачки на матовом теле давали «взгляд куклы» из хоррора.
+ * Радужка намечена лишь чуть более тёмным кругом.
+ */
 function Eyes({ clip }) {
-    const white = useMemo(() => new THREE.MeshPhysicalMaterial({ color: '#f4f1ec', roughness: 0.15, clearcoat: 1, clippingPlanes: [clip.plane] }), [clip.plane]);
-    const iris = useMemo(() => new THREE.MeshStandardMaterial({ color: '#4a6a8a', roughness: 0.3, clippingPlanes: [clip.plane] }), [clip.plane]);
-    const pupil = useMemo(() => new THREE.MeshBasicMaterial({ color: '#0a0a0c', clippingPlanes: [clip.plane] }), [clip.plane]);
+    const white = useMemo(() => new THREE.MeshStandardMaterial({ color: '#e6a88a', roughness: 0.55, clippingPlanes: [clip.plane] }), [clip.plane]);
+    const iris = useMemo(() => new THREE.MeshStandardMaterial({ color: '#d39a7e', roughness: 0.6, clippingPlanes: [clip.plane] }), [clip.plane]);
+    const pupil = useMemo(() => new THREE.MeshStandardMaterial({ color: '#c48d72', roughness: 0.6, clippingPlanes: [clip.plane] }), [clip.plane]);
     useEffect(() => () => [white, iris, pupil].forEach((m) => m.dispose()), [white, iris, pupil]);
     return (
         <group>
             {[-1, 1].map((s) => (
-                <group key={s} position={[s * 0.12, 3.28, 0.3]}>
-                    <mesh material={white} raycast={() => null}><sphereGeometry args={[0.047, 28, 20]} /></mesh>
-                    <mesh material={iris} position={[0, 0, 0.038]} scale={[1, 1, 0.45]} raycast={() => null}><sphereGeometry args={[0.022, 24, 16]} /></mesh>
-                    <mesh material={pupil} position={[0, 0, 0.046]} scale={[1, 1, 0.3]} raycast={() => null}><sphereGeometry args={[0.009, 12, 10]} /></mesh>
+                <group key={s} position={[s * 0.12, 3.279, 0.285]}>
+                    <mesh material={white} raycast={() => null}><sphereGeometry args={[0.05, 28, 20]} /></mesh>
+                    <mesh material={iris} position={[0, 0, 0.042]} scale={[1, 1, 0.45]} raycast={() => null}><sphereGeometry args={[0.024, 24, 16]} /></mesh>
+                    <mesh material={pupil} position={[0, 0, 0.05]} scale={[1, 1, 0.3]} raycast={() => null}><sphereGeometry args={[0.009, 12, 10]} /></mesh>
                 </group>
             ))}
         </group>

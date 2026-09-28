@@ -87,8 +87,8 @@ float segDist(vec3 p, vec3 a, vec3 b) {
  */
 export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
     const material = new THREE.MeshPhysicalMaterial({
-        color: '#e3b596',
-        roughness: 0.52,
+        color: '#e6a88a',
+        roughness: 0.62,
         metalness: 0,
         sheen: 0.6,
         sheenRoughness: 0.5,
@@ -119,10 +119,15 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
             .replace('#include <color_fragment>', `#include <color_fragment>
                 vec3 P = vBodyPos;
                 // Лёгкая неровность цвета: кожа никогда не бывает одного тона
-                diffuseColor.rgb *= 0.93 + 0.1 * bodyNoise(P * 9.0);
+                diffuseColor.rgb *= 0.97 + 0.04 * bodyNoise(P * 9.0);
+                // Тень небритости по челюсти и над губой — лицо взрослого мужчины
+                float jawZone = smoothstep(3.12, 3.0, P.y) * smoothstep(2.86, 2.95, P.y) * smoothstep(0.1, 0.25, P.z);
+                float lipZone = smoothstep(0.03, 0.0, abs(P.y - 3.036) - 0.02) * smoothstep(0.1, 0.07, abs(P.x));
+                float stubble = jawZone * (1.0 - lipZone) * (0.7 + 0.3 * bodyHash(floor(P * 260.0)));
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.33, 0.3), stubble * 0.0);
                 // Румянец на щеках, губы, розовые ладони и колени
                 float blush = smoothstep(0.16, 0.0, length(vec2(abs(P.x) - 0.2, P.y - 3.08))) * step(0.25, P.z);
-                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.62, 0.55), blush * 0.15);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.62, 0.55), blush * 0.08);
 
                 // Ожог: сверху и спереди — плечи, лицо, грудь
                 float sunlit = smoothstep(1.7, 2.6, P.y) * (0.6 + 0.4 * smoothstep(-0.1, 0.4, P.z));
@@ -147,13 +152,19 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
                 // Брови, губы и короткие волосы: без них голова читалась манекеном
                 float brow = smoothstep(0.016, 0.0, abs(P.y - 3.372 - 0.015 * sin(abs(P.x) * 14.0)))
                     * smoothstep(0.23, 0.2, abs(P.x)) * smoothstep(0.04, 0.07, abs(P.x)) * step(0.28, P.z);
-                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.2, 0.13, 0.09), brow * 0.85);
+                diffuseColor.rgb *= 1.0 - brow * 0.08;
                 float lips = smoothstep(0.03, 0.0, abs(P.y - 3.036) - 0.02) * smoothstep(0.1, 0.07, abs(P.x)) * step(0.34, P.z);
-                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.66, 0.34, 0.33), lips * 0.75);
-                float hairline = 3.5 + 0.06 * cos(P.x * 6.0) - smoothstep(0.1, 0.4, -P.z) * 0.35;
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8, 0.5, 0.44), lips * 0.18);
+                // Линия рта с едва приподнятыми уголками
+                float mouthLine = smoothstep(0.007, 0.0, abs(P.y - 3.038 - 2.2 * P.x * P.x)) * smoothstep(0.085, 0.06, abs(P.x)) * step(0.3, P.z);
+                diffuseColor.rgb *= 1.0 - mouthLine * 0.45;
+                float hairline = 3.53 + 0.03 * cos(P.x * 9.0) - 0.13 * clamp((abs(P.x) - 0.14) / 0.14, 0.0, 1.0) * step(0.0, P.z) - 0.3 * clamp(-P.z / 0.35, 0.0, 1.0);
                 float hair = smoothstep(hairline - 0.01, hairline + 0.03, P.y) * (1.0 - smoothstep(0.3, 0.34, abs(P.x)) * step(3.35, P.y) * 0.0);
                 float strand = 0.8 + 0.2 * bodyNoise(vec3(P.x * 90.0, P.y * 30.0, P.z * 90.0)) + 0.06 * sin(P.x * 260.0 + bodyNoise(P * 30.0) * 6.0);
-                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.16, 0.1, 0.07) * strand, hair);
+                // Волосы — не краска, а чуть более тёмная «лепка», как у манекена:
+                // тёмный парик на гладкой голове смотрелся жутко
+                diffuseColor.rgb *= 1.0 - hair * (0.1 + 0.05 * strand);
+                diffuseColor.rgb *= 1.0 - smoothstep(0.02, 0.0, abs(P.y - hairline)) * step(0.0, P.z) * 0.12;
 
                 // Ихтиоз: роговые пластины ромбической решёткой, как чешуя
                 vec2 sc = vec2(P.x * 13.0 + P.y * 7.0, P.x * 13.0 - P.y * 7.0) + vec2(P.z * 6.0);
