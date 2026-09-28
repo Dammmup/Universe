@@ -10,10 +10,10 @@ import { BODY_OVERVIEW } from './data/bodyLayers';
 import Onboarding from './components/Onboarding';
 import FactorModal from './components/FactorModal';
 import Echoes from './components/Echoes';
+import FinaleSummary from './components/FinaleSummary';
 import MesoPanel from './components/MesoPanel';
 import { HumanPanel, MindPanel } from './components/HumanPanel';
 import { ScenarioJournal, ScenarioModal } from './components/Scenarios';
-import { SCENARIOS } from './data/scenarios';
 import SceneVeil from './scenes/effects/SceneVeil';
 import PostFX from './scenes/effects/PostFX';
 import { veilPreset } from './lib/veilPresets';
@@ -406,18 +406,10 @@ export default function App() {
     const activeFactorId = useStore((s) => s.activeFactorId);
     const location = useStore((s) => s.location);
     const scenarioOpen = useStore((s) => s.scenarioQueue.length > 0);
-    const foundScenarios = useStore((s) => Object.keys(s.discoveredScenarios).length);
-    const resetJourney = useStore((s) => s.resetJourney);
     const approachingEarth = useStore((s) => s.approachingEarth);
     const freeLook = useStore((s) => s.freeLook);
     const shift = useStore((s) => s.shift);
     const nextStage = useStore((s) => s.nextStage);
-
-    // Сколько факторов зритель перевернул за путь — это итог, который
-    // показывает финальный экран
-    const reversedCount = useStore(
-        (s) => Object.values(s.reversedFactors).filter(Boolean).length,
-    );
 
     // Сенсорный экран меняет и управление, и формулировки подсказок: «скролль»
     // и «наведи курсор» на телефоне ничего не значат
@@ -760,36 +752,7 @@ export default function App() {
                 )}
                 {stage === HUMAN_STAGE && <HumanPanel touch={isTouch} />}
                 {stage === MIND_STAGE && <MindPanel touch={isTouch} />}
-                {stage === FINALE_STAGE && (
-                    <div className="animate-fade-in relative z-50 pointer-events-auto max-w-xl mx-auto px-6">
-                        <p className="tracking-[0.45em] uppercase text-[10px] mb-4 text-white/35">
-                            Путь пройден
-                        </p>
-                        <p className="text-sm text-white/65 leading-relaxed mb-3">
-                            Шесть масштабов — от сингулярности до собственного тела.
-                            Везде работали одни и те же факторы, только под разными именами.
-                        </p>
-                        <p className="text-sm text-cyan-200/80 mb-2">
-                            {reversedCount > 0
-                                ? `Ты перевернул факторов: ${reversedCount}. Реальность осталась собранной.`
-                                : 'Ты не перевернул ни одного фактора. Пройди снова и попробуй — мир соберётся иначе.'}
-                        </p>
-                        <p className="text-xs text-amber-200/70 mb-5">
-                            {foundScenarios > 0
-                                ? `Сложилось миров из комбинаций: ${foundScenarios} из ${SCENARIOS.length}.`
-                                : `Ни одна комбинация не сложилась — а их ${SCENARIOS.length}.`}
-                        </p>
-                        <p className="text-base text-white/90 italic mb-6">
-                            «Я не просто изучаю вселенную. Я её активирую.»
-                        </p>
-                        <button
-                            onClick={resetJourney}
-                            className="px-6 py-2 border border-white/30 rounded-full text-xs uppercase tracking-wider text-white/70 hover:bg-white hover:text-black transition-colors"
-                        >
-                            Пройти путь снова
-                        </button>
-                    </div>
-                )}
+                {stage === FINALE_STAGE && <FinaleSummary />}
             </div>
 
             <FactorModal />
