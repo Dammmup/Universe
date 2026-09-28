@@ -601,6 +601,18 @@ function OrganLayer({ reversedFactors }) {
     );
 }
 
+/** Круглый мраморный постамент под ногами статуи. */
+function Pedestal() {
+    const material = useMemo(() => new THREE.MeshPhysicalMaterial({ color: '#d9d3cb', roughness: 0.3, clearcoat: 0.5, clearcoatRoughness: 0.25 }), []);
+    useEffect(() => () => material.dispose(), [material]);
+    return (
+        <group position={[0, -3.72, 0]}>
+            <mesh material={material} position={[0, -0.12, 0]} receiveShadow raycast={() => null}><cylinderGeometry args={[1.05, 1.1, 0.24, 64]} /></mesh>
+            <mesh material={material} position={[0, -0.33, 0]} receiveShadow raycast={() => null}><cylinderGeometry args={[1.2, 1.25, 0.18, 64]} /></mesh>
+        </group>
+    );
+}
+
 /**
  * Антропо-уровень: фигура и её подуровни.
  *
@@ -642,7 +654,6 @@ export default function HumanBody() {
         const g = groupRef.current;
         if (!g) return;
         const t = state.clock.elapsedTime;
-        g.position.y = Math.sin(t * 0.5) * 0.03;
         g.rotation.z = reversedFactors.balance ? Math.sin(t * 1.3) * 0.06 + Math.sin(t * 3.1) * 0.02 : 0;
         // Органы не умеют отсекаться плоскостью — они появляются, когда линия
         // снятия прошла середину тела
@@ -659,6 +670,8 @@ export default function HumanBody() {
             <directionalLight position={[-5, 3, -4]} intensity={1.1} color="#9fc8ff" />
             <pointLight position={[0.2, 1.9, 1.6]} intensity={bodyLayer === 2 ? 1.2 : 0.3} color="#ff6a7a" distance={5} />
 
+            {/* Постамент: фигура — скульптура, ей нужна опора */}
+            <Pedestal />
             <SkinLayer geometry={skinGeometry} present={bodyLayer === 0} rev={reversedFactors} clip={skinClip} groups={groups} />
             <MuscleLayer geometry={muscleGeometry} rev={reversedFactors} clip={muscleClip} cover={skinClip} groups={groups} />
             <GhostSkin geometry={skinGeometry} present={bodyLayer >= 2} />

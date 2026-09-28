@@ -87,14 +87,13 @@ float segDist(vec3 p, vec3 a, vec3 b) {
  */
 export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
     const material = new THREE.MeshPhysicalMaterial({
-        color: '#e6a88a',
-        roughness: 0.62,
+        // Скульптура из тёплого мрамора: живая кожа на процедурной фигуре
+        // попадала в «зловещую долину», статуя — нет
+        color: '#efe9e1',
+        roughness: 0.34,
         metalness: 0,
-        sheen: 0.6,
-        sheenRoughness: 0.5,
-        sheenColor: new THREE.Color('#ffd6c4'),
-        clearcoat: 0.08,
-        clearcoatRoughness: 0.6,
+        clearcoat: 0.45,
+        clearcoatRoughness: 0.22,
         clippingPlanes,
     });
     material.onBeforeCompile = (shader) => {
@@ -118,8 +117,12 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
                 ${HASH}`)
             .replace('#include <color_fragment>', `#include <color_fragment>
                 vec3 P = vBodyPos;
-                // Лёгкая неровность цвета: кожа никогда не бывает одного тона
-                diffuseColor.rgb *= 0.97 + 0.04 * bodyNoise(P * 9.0);
+                // Мраморные прожилки: тонкие серые жилы, изогнутые шумом
+                float veinA = 1.0 - abs(sin(P.x * 2.6 + P.y * 1.3 + P.z * 1.9 + bodyNoise(P * 1.8) * 5.0));
+                float veinB = 1.0 - abs(sin(P.x * -1.7 + P.y * 3.1 + bodyNoise(P * 3.3 + 7.0) * 4.0));
+                float vein = pow(veinA, 26.0) + pow(veinB, 40.0) * 0.6;
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.66, 0.66, 0.7), clamp(vein, 0.0, 1.0) * 0.35);
+                diffuseColor.rgb *= 0.97 + 0.04 * bodyNoise(P * 5.0);
                 // Тень небритости по челюсти и над губой — лицо взрослого мужчины
                 float jawZone = smoothstep(3.12, 3.0, P.y) * smoothstep(2.86, 2.95, P.y) * smoothstep(0.1, 0.25, P.z);
                 float lipZone = smoothstep(0.03, 0.0, abs(P.y - 3.036) - 0.02) * smoothstep(0.1, 0.07, abs(P.x));
@@ -127,7 +130,7 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
                 diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.33, 0.3), stubble * 0.0);
                 // Румянец на щеках, губы, розовые ладони и колени
                 float blush = smoothstep(0.16, 0.0, length(vec2(abs(P.x) - 0.2, P.y - 3.08))) * step(0.25, P.z);
-                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.62, 0.55), blush * 0.08);
+                blush *= 0.0;
 
                 // Ожог: сверху и спереди — плечи, лицо, грудь
                 float sunlit = smoothstep(1.7, 2.6, P.y) * (0.6 + 0.4 * smoothstep(-0.1, 0.4, P.z));
@@ -154,23 +157,23 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
                 pq = mat2(cos(0.3), sin(0.3), -sin(0.3), cos(0.3)) * pq;
                 float pe = length(pq / vec2(0.36, 0.22));
                 float pecCrease = smoothstep(0.14, 0.0, abs(pe - 1.0)) * step(pq.y, -0.02) * step(0.15, P.z) * smoothstep(0.02, 0.06, abs(P.x));
-                diffuseColor.rgb *= 1.0 - pecCrease * 0.22;
+                diffuseColor.rgb *= 1.0 - pecCrease * 0.12;
 
                 // Брови, губы и короткие волосы: без них голова читалась манекеном
                 float brow = smoothstep(0.016, 0.0, abs(P.y - 3.372 - 0.015 * sin(abs(P.x) * 14.0)))
                     * smoothstep(0.23, 0.2, abs(P.x)) * smoothstep(0.04, 0.07, abs(P.x)) * step(0.28, P.z);
-                diffuseColor.rgb *= 1.0 - brow * 0.08;
+                brow *= 0.0;
                 float lips = smoothstep(0.03, 0.0, abs(P.y - 3.036) - 0.02) * smoothstep(0.1, 0.07, abs(P.x)) * step(0.34, P.z);
-                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8, 0.5, 0.44), lips * 0.18);
+                lips *= 0.0;
                 // Линия рта с едва приподнятыми уголками
                 float mouthLine = smoothstep(0.007, 0.0, abs(P.y - 3.038 - 2.2 * P.x * P.x)) * smoothstep(0.085, 0.06, abs(P.x)) * step(0.3, P.z);
-                diffuseColor.rgb *= 1.0 - mouthLine * 0.45;
+                diffuseColor.rgb *= 1.0 - mouthLine * 0.2;
                 float hairline = 3.53 + 0.03 * cos(P.x * 9.0) - 0.13 * clamp((abs(P.x) - 0.14) / 0.14, 0.0, 1.0) * step(0.0, P.z) - 0.3 * clamp(-P.z / 0.35, 0.0, 1.0);
                 float hair = smoothstep(hairline - 0.01, hairline + 0.03, P.y) * (1.0 - smoothstep(0.3, 0.34, abs(P.x)) * step(3.35, P.y) * 0.0);
                 float strand = 0.8 + 0.2 * bodyNoise(vec3(P.x * 90.0, P.y * 30.0, P.z * 90.0)) + 0.06 * sin(P.x * 260.0 + bodyNoise(P * 30.0) * 6.0);
                 // Волосы — не краска, а чуть более тёмная «лепка», как у манекена:
                 // тёмный парик на гладкой голове смотрелся жутко
-                diffuseColor.rgb *= 1.0 - hair * (0.1 + 0.05 * strand);
+                diffuseColor.rgb *= 1.0 - hair * 0.07 * strand;
                 diffuseColor.rgb *= 1.0 - smoothstep(0.02, 0.0, abs(P.y - hairline)) * step(0.0, P.z) * 0.12;
 
                 // Ихтиоз: роговые пластины ромбической решёткой, как чешуя
