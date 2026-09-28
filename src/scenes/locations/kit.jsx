@@ -177,6 +177,57 @@ export function SkyDome({
     );
 }
 
+/**
+ * Небо как карта окружения: вода, стекло башен и мокрые листья отражают то
+ * же небо, что видно в кадре. Без неё гладкая вода отражала пустоту и
+ * выглядела пластиком. Карта пересобирается, когда небо меняет цвета
+ * (ночь, буря, смог) — с задержкой, пока идёт перетекание.
+ */
+function SkyEnvironment({ top = '#3f7fc4', horizon = '#bcd6ea', bottom = '#6a7a88', sunColor = '#ffe2b0', sunDir = [0.4, 0.35, -0.8] }) {
+    const gl = useThree((s) => s.gl);
+    const scene = useThree((s) => s.scene);
+    const key = `${top}|${horizon}|${bottom}|${sunColor}|${sunDir.join(',')}`;
+    useEffect(() => {
+        let target = null;
+        const timer = setTimeout(() => {
+            const envScene = new THREE.Scene();
+            const material = new THREE.ShaderMaterial({
+                vertexShader: skyVertex,
+                fragmentShader: skyFragment,
+                side: THREE.BackSide,
+                uniforms: {
+                    uTop: { value: new THREE.Color(top) },
+                    uHorizon: { value: new THREE.Color(horizon) },
+                    uBottom: { value: new THREE.Color(bottom) },
+                    uSunColor: { value: new THREE.Color(sunColor) },
+                    uSunDir: { value: new THREE.Vector3(...sunDir).normalize() },
+                    uSunSize: { value: 3 },
+                    uStars: { value: 0 },
+                    uHaze: { value: 1 },
+                    uTime: { value: 0 },
+                },
+            });
+            envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), material));
+            const pmrem = new THREE.PMREMGenerator(gl);
+            target = pmrem.fromScene(envScene, 0.02);
+            scene.environment = target.texture;
+            scene.environmentIntensity = 0.55;
+            pmrem.dispose();
+            material.dispose();
+        }, 900);
+        return () => {
+            clearTimeout(timer);
+            if (target) {
+                if (scene.environment === target.texture) scene.environment = null;
+                target.dispose();
+            }
+        };
+        // Пересобираем только когда меняются цвета неба
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [key, gl, scene]);
+    return null;
+}
+
 /** Солнечный свет с мягкими тенями на всю диораму. */
 export const SunLight = forwardRef(function SunLight(
     { position = [30, 40, 20], color = '#fff1dc', intensity = 2.4, size = 44 },
@@ -1146,13 +1197,42 @@ export const smoothstep = (a, b, v) => {
     return t * t * (3 - 2 * t);
 };
 
-export function useVertexMaterial(props = {}) {
-    return useMemo(() => new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        roughness: 0.85,
-        flatShading: true,
-        ...props,
-    }), []); // eslint-disable-line react-hooks/exhaustive-deps
+/** Общее время ветра для всех диорам — его ведёт Atmosphere. */
+const WIND = { uWind: { value: 0 } };
+
+/**
+ * Материал с вершинным цветом. sway — сила ветра: крона качается тем
+ * сильнее, чем выше вершина над основанием, у каждого экземпляра — своя фаза.
+ * Без ветра лес стоял как макет из пластика.
+ */
+export function useVertexMaterial(props = {}, { sway = 0 } = {}) {
+    return useMemo(() => {
+        const material = new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 0.85,
+            flatShading: true,
+            ...props,
+        });
+        if (sway > 0) {
+            material.onBeforeCompile = (shader) => {
+                shader.uniforms.uWind = WIND.uWind;
+                shader.vertexShader = shader.vertexShader
+                    .replace('#include <common>', '#include <common>\nuniform float uWind;')
+                    .replace('#include <begin_vertex>', `#include <begin_vertex>
+                        #ifdef USE_INSTANCING
+                            vec2 seed = instanceMatrix[3].xz;
+                        #else
+                            vec2 seed = vec2(0.0);
+                        #endif
+                        float bend = max(0.0, transformed.y) * max(0.0, transformed.y) * ${(0.004 * sway).toFixed(4)};
+                        float gust = sin(uWind * 1.3 + seed.x * 0.31 + seed.y * 0.17) + 0.4 * sin(uWind * 3.1 + seed.x * 0.9);
+                        transformed.x += gust * bend;
+                        transformed.z += cos(uWind * 1.1 + seed.y * 0.29) * bend * 0.6;`);
+            };
+            material.customProgramCacheKey = () => `vertex-sway-${sway}`;
+        }
+        return material;
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 /** Разбрасывает точки по прямоугольнику, отбраковывая неподходящие места. */
@@ -1197,8 +1277,10 @@ export function Atmosphere({ sky, fog, sun, hemi }) {
     useFogTween(fogObj, fog);
     const sunRef = useRef();
     useLightTween(sunRef, { color: sun.color, intensity: sun.intensity });
+    useFrame((state) => { WIND.uWind.value = state.clock.elapsedTime; });
     return (
         <>
+            <SkyEnvironment top={sky.top} horizon={sky.horizon} bottom={sky.bottom} sunColor={sky.sunColor} sunDir={sky.sunDir} />
             <SkyDome {...sky} />
             <SunLight ref={sunRef} position={sun.position} color={sun.color} intensity={sun.intensity} />
             <Hemisphere {...hemi} />

@@ -66,7 +66,7 @@ export function Jungle() {
     ]), []);
     const bushGeo = useMemo(() => new THREE.IcosahedronGeometry(1, 0), []);
     const stumpGeo = useMemo(() => new THREE.CylinderGeometry(0.3, 0.36, 0.5, 6).translate(0, 0.25, 0), []);
-    const mat = useVertexMaterial();
+    const mat = useVertexMaterial({}, { sway: 1 });
     const plainMat = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true }), []);
 
     const { trees, bushes, stumps } = useMemo(() => {
@@ -217,7 +217,7 @@ export function Taiga() {
         { geo: new THREE.CylinderGeometry(0.06, 0.16, 4.2, 5), color: '#ffffff', pos: [0, 2.1, 0] },
         { geo: new THREE.CylinderGeometry(0.02, 0.05, 1.4, 4), color: '#ffffff', pos: [0.35, 3.1, 0], rot: [0, 0, -0.9] },
     ]), []);
-    const mat = useVertexMaterial({ roughness: 0.9 });
+    const mat = useVertexMaterial({ roughness: 0.9 }, { sway: 0.8 });
 
     const { pines, charred, roots } = useMemo(() => {
         const rand = seededRandom(0x7a16a);
@@ -382,7 +382,8 @@ export function Desert() {
         { geo: new THREE.BoxGeometry(0.12, 1.1, 0.12), color: '#a07a50', pos: [0.45, 0.55, 0.15] },
         { geo: new THREE.BoxGeometry(0.12, 1.1, 0.12), color: '#a07a50', pos: [-0.45, 0.55, -0.15] },
     ]), []);
-    const mat = useVertexMaterial({ roughness: 0.8 });
+    const mat = useVertexMaterial({ roughness: 0.8 }, { sway: 1.2 });
+    const camelMat = useVertexMaterial({ roughness: 0.8 });
     const flowerMat = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.6, flatShading: true, emissive: '#221111' }), []);
 
     const { palms, flowers, camels } = useMemo(() => {
@@ -470,7 +471,7 @@ export function Desert() {
             <InstancedSet geometry={palmGeo} material={mat} items={palms} blend={dried ? 1 : 0} />
             <InstancedSet geometry={flowerGeo} material={flowerMat} items={flowers} hidden={!bloom} castShadow={false} speed={0.8} />
 
-            <instancedMesh ref={caravanRef} args={[camelGeo, mat, camels.length]} castShadow frustumCulled={false} raycast={() => null} />
+            <instancedMesh ref={caravanRef} args={[camelGeo, camelMat, camels.length]} castShadow frustumCulled={false} raycast={() => null} />
             {/* Ночной костёр каравана и горячее марево днём */}
             <GlowLight position={[-14, desertHeight(-14, 11) + 1, 11]} color="#ff9a4a" intensity={40} distance={22} on={night && !storm} flicker={1} />
             <Particles mode="rise" count={40} area={[0.8, 2, 0.8]} center={[-14, desertHeight(-14, 11) + 1.4, 11]} size={0.3} speed={1.5} color="#ffb060" amount={night && !storm ? 1 : 0} seed={12} />
@@ -684,7 +685,7 @@ export function Ocean() {
         }
         return mergeParts(parts);
     }, []);
-    const mat = useVertexMaterial({ roughness: 0.7 });
+    const mat = useVertexMaterial({ roughness: 0.7 }, { sway: 0.9 });
 
     const { corals, palms } = useMemo(() => {
         const rand = seededRandom(0x0cea);
