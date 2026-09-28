@@ -93,7 +93,14 @@ function sdCone(px, py, pz, c) {
     return (Math.sqrt(x2 * a2 * il2) + y * rr) * il2 - c.ra;
 }
 
-const sd = (x, y, z, p) => (p.type === 'e' ? sdEllipsoid(x, y, z, p) : sdCone(x, y, z, p));
+function sd(x, y, z, p) {
+    // Сплющенный по глубине конус: сечение торса — эллипс, а не круг
+    if (p.sz) {
+        const zz = p.c[2] + (z - p.c[2]) / p.sz;
+        return (p.type === 'e' ? sdEllipsoid(x, y, zz, p) : sdCone(x, y, zz, p)) * Math.min(1, p.sz);
+    }
+    return p.type === 'e' ? sdEllipsoid(x, y, z, p) : sdCone(x, y, z, p);
+}
 
 function smin(a, b, k) {
     const h = Math.max(k - Math.abs(a - b), 0) / k;
@@ -110,18 +117,21 @@ const mirror = (list, make) => [1, -1].forEach((s) => list.push(make(s)));
 
 function basePrimitives() {
     const P = [];
-    // Голова: череп, лицевой отдел, челюсть, нос, уши, шея
-    P.push(ellipsoid([0, 3.44, -0.03], [0.38, 0.44, 0.45]));
-    P.push(ellipsoid([0, 3.2, 0.1], [0.32, 0.3, 0.27]));
-    P.push(ellipsoid([0, 2.98, 0.14], [0.22, 0.14, 0.2]));
-    P.push(ellipsoid([0, 3.2, 0.42], [0.05, 0.1, 0.07], [-0.3, 0, 0]));
-    P.push(ellipsoid([0, 3.05, 0.37], [0.07, 0.025, 0.035]));
-    mirror(P, (s) => ellipsoid([s * 0.37, 3.22, -0.02], [0.05, 0.1, 0.075]));
-    P.push(cone([0, 2.55, -0.04], [0, 3.02, 0.02], 0.22, 0.19));
+    // Голова по пропорциям: высота 23 см, ширина 15, глубина 20 — в
+    // масштабе фигуры 0,95 × 0,62 × 0,83. Крупные массы здесь, черты лица —
+    // отдельно (facePrimitives): им нужно резкое слияние, иначе они
+    // расплываются в бугры.
+    P.push(ellipsoid([0, 3.47, -0.07], [0.32, 0.39, 0.41]));   // черепная коробка
+    P.push(ellipsoid([0, 3.27, 0.1], [0.28, 0.33, 0.3]));      // лицевой отдел
+    P.push(ellipsoid([0, 3.02, 0.1], [0.23, 0.13, 0.25]));     // нижняя челюсть
+    P.push(cone([0, 2.52, -0.05], [0, 3.02, -0.02], 0.19, 0.17));   // шея
     // Туловище: грудная клетка, живот, таз, плечевой пояс
-    P.push(ellipsoid([0, 1.98, -0.02], [0.62, 0.62, 0.38]));
-    P.push(ellipsoid([0, 1.24, 0.0], [0.5, 0.54, 0.3]));
-    P.push(ellipsoid([0, 0.44, -0.04], [0.5, 0.4, 0.34]));
+    // Грудная клетка и плавный переход к талии и тазу: три отдельных
+    // эллипсоида давали живот-мяч и перетяжку на талии, как у песочных часов
+    P.push(ellipsoid([0, 1.98, -0.02], [0.62, 0.6, 0.43]));
+    P.push(cone([0, 2.0, -0.02], [0, 1.15, 0.0], 0.56, 0.46, { sz: 0.66 }));
+    P.push(cone([0, 1.15, 0.0], [0, 0.42, -0.04], 0.46, 0.5, { sz: 0.74 }));
+    P.push(ellipsoid([0, 0.36, -0.06], [0.5, 0.34, 0.36]));
     P.push(cone([-0.72, 2.3, -0.05], [0.72, 2.3, -0.05], 0.19, 0.19));
     // Руки
     mirror(P, (s) => cone([s * 0.86, 2.24, 0], [s * 1.04, 1.05, 0.01], 0.16, 0.12));
@@ -130,12 +140,34 @@ function basePrimitives() {
     mirror(P, (s) => cone([s * 1.18, -0.26, 0.06], [s * 1.16, -0.6, 0.08], 0.05, 0.03));
     mirror(P, (s) => cone([s * 1.14, -0.04, 0.12], [s * 1.1, -0.28, 0.19], 0.035, 0.025));
     // Ноги
-    mirror(P, (s) => cone([s * 0.31, 0.26, -0.02], [s * 0.37, -1.58, 0.02], 0.28, 0.17));
-    mirror(P, (s) => ellipsoid([s * 0.38, -1.66, 0.05], [0.14, 0.15, 0.15]));
+    mirror(P, (s) => cone([s * 0.3, 0.24, -0.02], [s * 0.37, -1.56, 0.02], 0.29, 0.16));
+    mirror(P, (s) => ellipsoid([s * 0.38, -1.64, 0.05], [0.12, 0.13, 0.13]));
     mirror(P, (s) => cone([s * 0.38, -1.7, 0.0], [s * 0.36, -3.4, -0.03], 0.17, 0.085));
     mirror(P, (s) => ellipsoid([s * 0.37, -3.63, 0.13], [0.1, 0.08, 0.3], [0.05, 0, 0]));
     mirror(P, (s) => ellipsoid([s * 0.36, -3.6, -0.1], [0.08, 0.1, 0.1]));
     return P;
+}
+
+/**
+ * Черты лица: скулы, углы челюсти, подбородок, надбровье, нос (спинка,
+ * кончик, крылья), губы, веки, уши. Сливаются с головой резко — черта лица
+ * должна читаться формой, а не растекаться по щекам.
+ */
+function facePrimitives() {
+    const F = [];
+    mirror(F, (s) => ellipsoid([s * 0.17, 3.2, 0.24], [0.08, 0.055, 0.09], [0, s * 0.35, 0], { k: 0.07 }));  // скулы
+    mirror(F, (s) => cone([s * 0.21, 3.1, -0.02], [s * 0.08, 2.94, 0.24], 0.055, 0.045, { k: 0.08 }));  // линия челюсти
+    F.push(ellipsoid([0, 2.93, 0.28], [0.085, 0.06, 0.07], [0, 0, 0], { k: 0.05 }));                // подбородок
+    F.push(ellipsoid([0, 3.37, 0.33], [0.22, 0.035, 0.055], [0, 0, 0], { k: 0.07 }));               // надбровье
+    F.push(cone([0, 3.35, 0.37], [0, 3.17, 0.46], 0.03, 0.045));                                   // спинка носа
+    F.push(ellipsoid([0, 3.155, 0.465], [0.045, 0.04, 0.042]));                                    // кончик носа
+    mirror(F, (s) => ellipsoid([s * 0.045, 3.145, 0.42], [0.034, 0.03, 0.035]));                   // крылья носа
+    F.push(ellipsoid([0, 3.055, 0.385], [0.085, 0.021, 0.035]));                                   // верхняя губа
+    F.push(ellipsoid([0, 3.018, 0.378], [0.075, 0.024, 0.035]));                                   // нижняя губа
+    mirror(F, (s) => ellipsoid([s * 0.12, 3.305, 0.335], [0.056, 0.024, 0.042], [0.25, 0, 0]));   // верхние веки
+    mirror(F, (s) => ellipsoid([s * 0.12, 3.255, 0.33], [0.05, 0.016, 0.036]));                    // нижние веки
+    mirror(F, (s) => ellipsoid([s * 0.325, 3.25, -0.05], [0.03, 0.095, 0.062], [0, s * -0.4, 0])); // уши
+    return F;
 }
 
 /** Мышцы: эллипсоиды по анатомическим местам, у каждой — группа для анимации. */
@@ -143,7 +175,7 @@ function musclePrimitives() {
     const M = [];
     const add = (group, make) => mirror(M, (s) => ({ ...make(s), group: G[group] }));
     add('chest', (s) => ellipsoid([s * 0.29, 2.02, 0.24], [0.3, 0.19, 0.13], [0, s * 0.3, s * -0.35]));
-    add('shoulder', (s) => ellipsoid([s * 0.88, 2.2, 0.02], [0.18, 0.25, 0.19], [0, 0, s * 0.3]));
+    add('shoulder', (s) => ellipsoid([s * 0.87, 2.2, 0.02], [0.16, 0.23, 0.17], [0, 0, s * 0.3]));
     add('back', (s) => ellipsoid([s * 0.3, 2.4, -0.18], [0.34, 0.12, 0.13], [0, 0, s * -0.35]));
     add('back', (s) => ellipsoid([s * 0.44, 1.7, -0.2], [0.2, 0.44, 0.12], [0, s * -0.3, s * 0.2]));
     add('neck', (s) => ellipsoid([s * 0.11, 2.8, 0.08], [0.055, 0.25, 0.06], [0.25, 0, s * -0.45]));
@@ -151,8 +183,8 @@ function musclePrimitives() {
     add('arm', (s) => ellipsoid([s * 0.97, 1.66, -0.08], [0.12, 0.33, 0.11], [0, 0, s * 0.12]));
     add('arm', (s) => ellipsoid([s * 1.09, 0.7, 0.05], [0.1, 0.36, 0.09], [0, 0, s * 0.08]));
     add('arm', (s) => ellipsoid([s * 1.1, 0.66, -0.04], [0.09, 0.36, 0.08], [0, 0, s * 0.08]));
-    add('core', (s) => ellipsoid([s * 0.34, 1.22, 0.08], [0.08, 0.28, 0.08], [0, s * 0.4, s * 0.1]));
-    [1.28, 1.5, 1.72].forEach((y) => add('core', (s) => ellipsoid([s * 0.1, y, 0.24], [0.09, 0.09, 0.07], [0, s * 0.15, 0])));
+    add('core', (s) => ellipsoid([s * 0.34, 1.22, 0.08], [0.08, 0.28, 0.08], [0, s * 0.4, s * 0.1], { muscleOnly: true }));
+    [1.06, 1.28, 1.5, 1.72].forEach((y) => add('core', (s) => ellipsoid([s * 0.1, y, 0.24], [0.09, 0.09, 0.07], [0, s * 0.15, 0])));
     add('hip', (s) => ellipsoid([s * 0.29, 0.34, -0.24], [0.28, 0.3, 0.2]));
     add('thigh', (s) => ellipsoid([s * 0.44, -0.6, 0.1], [0.16, 0.55, 0.17], [0, 0, s * 0.04]));   // латеральная широкая
     add('thigh', (s) => ellipsoid([s * 0.3, -1.1, 0.12], [0.13, 0.36, 0.14], [0, 0, s * -0.1]));  // медиальная
@@ -165,6 +197,8 @@ function musclePrimitives() {
 }
 
 // ─── Поле ───────────────────────────────────────────────────────────────────
+
+const MOUTH = ellipsoid([0, 3.036, 0.415], [0.07, 0.0035, 0.025]);
 
 const VARIANTS = {
     // Кожа: мышцы вливаются мягко и лишь намечают рельеф
@@ -188,10 +222,12 @@ function bucketize(prims, y0, y1, step) {
 export function makeBodyField(variant = 'skin') {
     const v = VARIANTS[variant] ?? VARIANTS.skin;
     const base = basePrimitives();
+    const face = facePrimitives();
     const muscles = musclePrimitives();
     const Y0 = -4;
     const bb = bucketize(base, Y0, 4.2, 0.1);
     const bm = bucketize(muscles, Y0, 4.2, 0.1);
+    const bf = bucketize(face, Y0, 4.2, 0.1);
     const idx = (y) => Math.min(bb.buckets.length - 1, Math.max(0, Math.floor((y - Y0) / 0.1)));
 
     const field = (x, y, z) => {
@@ -199,14 +235,28 @@ export function makeBodyField(variant = 'skin') {
         const bl = bb.buckets[idx(y)];
         for (let i = 0; i < bl.length; i += 1) d = smin(d, sd(x, y, z, bl[i]), v.kBase);
         d += v.baseInset;
+        // Черты лица — резкое слияние, иначе нос и губы тонут в голове
+        if (y > 2.8) {
+            const fl = bf.buckets[idx(y)];
+            for (let i = 0; i < fl.length; i += 1) d = smin(d, sd(x, y, z, fl[i]) + v.baseInset * 0.5, fl[i].k ?? 0.025);
+        }
         const ml = bm.buckets[idx(y)];
-        for (let i = 0; i < ml.length; i += 1) d = smin(d, sd(x, y, z, ml[i]) + v.muscleInset, v.kMuscle);
-        // Глазницы: неглубокие впадины под надбровьем
-        const eye = Math.min(
-            Math.hypot(x - 0.14, y - 3.3, z - 0.41) - 0.07,
-            Math.hypot(x + 0.14, y - 3.3, z - 0.41) - 0.07,
-        );
-        d = smax(d, -eye, 0.05);
+        for (let i = 0; i < ml.length; i += 1) {
+            // Косые мышцы видны только без кожи — под ней они давали «бока»
+            if (ml[i].muscleOnly && variant === 'skin') continue;
+            d = smin(d, sd(x, y, z, ml[i]) + v.muscleInset, v.kMuscle);
+        }
+        if (y > 2.9 && y < 3.45 && z > 0.2) {
+            // Глазницы под надбровьем — в них садятся глазные яблоки
+            const eye = Math.min(
+                Math.hypot(x - 0.12, y - 3.28, z - 0.36) - 0.056,
+                Math.hypot(x + 0.12, y - 3.28, z - 0.36) - 0.056,
+            );
+            d = smax(d, -eye, 0.03);
+            // Линия рта между губами
+            const mouth = sdEllipsoid(x, y, z, MOUTH);
+            d = smax(d, -mouth, 0.004);
+        }
         return d;
     };
 

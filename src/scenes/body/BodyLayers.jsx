@@ -151,7 +151,7 @@ export function useMuscleGroups(rev) {
 
 export function SkinLayer({ geometry, present, rev, clip, groups }) {
     const uniforms = useMemo(() => ({
-        ...makeUniforms({ uBurn: 0, uHeat: 0, uWrinkle: 0.15, uScales: 0, uWound: 0, uScar: 0, uTouch: 1, uNumb: 0, uTime: 0 }),
+        ...makeUniforms({ uBurn: 0, uHeat: 0, uWrinkle: 0, uScales: 0, uWound: 0, uScar: 0, uTouch: 1, uNumb: 0, uTime: 0 }),
         uGroup: groups,
     }), [groups]);
     const material = useMemo(() => createSkinMaterial(uniforms, { clippingPlanes: [clip.plane] }), [uniforms, clip.plane]);
@@ -165,7 +165,7 @@ export function SkinLayer({ geometry, present, rev, clip, groups }) {
         dampUniforms(uniforms, {
             uBurn: rev.uvShield ? 1 : 0,
             uHeat: rev.thermoregulation ? 1 : 0,
-            uWrinkle: rev.elasticity ? 1 : 0.12,
+            uWrinkle: rev.elasticity ? 1 : 0,
             uScales: rev.ichthyosis ? 1 : 0,
             uScar: rev.healing ? 1 : 0,
             uTouch: rev.touch ? 0 : 1,
@@ -195,10 +195,10 @@ function Eyes({ clip }) {
     return (
         <group>
             {[-1, 1].map((s) => (
-                <group key={s} position={[s * 0.14, 3.3, 0.33]}>
-                    <mesh material={white} raycast={() => null}><sphereGeometry args={[0.055, 24, 18]} /></mesh>
-                    <mesh material={iris} position={[0, 0, 0.042]} scale={[1, 1, 0.4]} raycast={() => null}><sphereGeometry args={[0.028, 20, 14]} /></mesh>
-                    <mesh material={pupil} position={[0, 0, 0.053]} scale={[1, 1, 0.3]} raycast={() => null}><sphereGeometry args={[0.012, 12, 10]} /></mesh>
+                <group key={s} position={[s * 0.12, 3.28, 0.3]}>
+                    <mesh material={white} raycast={() => null}><sphereGeometry args={[0.047, 28, 20]} /></mesh>
+                    <mesh material={iris} position={[0, 0, 0.038]} scale={[1, 1, 0.45]} raycast={() => null}><sphereGeometry args={[0.022, 24, 16]} /></mesh>
+                    <mesh material={pupil} position={[0, 0, 0.046]} scale={[1, 1, 0.3]} raycast={() => null}><sphereGeometry args={[0.009, 12, 10]} /></mesh>
                 </group>
             ))}
         </group>

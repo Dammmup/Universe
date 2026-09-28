@@ -119,7 +119,7 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
                 diffuseColor.rgb *= 0.93 + 0.1 * bodyNoise(P * 9.0);
                 // Румянец на щеках, губы, розовые ладони и колени
                 float blush = smoothstep(0.16, 0.0, length(vec2(abs(P.x) - 0.2, P.y - 3.08))) * step(0.25, P.z);
-                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.5, 0.46), blush * 0.35);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.62, 0.55), blush * 0.15);
 
                 // Ожог: сверху и спереди — плечи, лицо, грудь
                 float sunlit = smoothstep(1.7, 2.6, P.y) * (0.6 + 0.4 * smoothstep(-0.1, 0.4, P.z));
@@ -133,11 +133,24 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
                 float hands = smoothstep(1.02, 1.12, abs(P.x)) * smoothstep(0.25, 0.05, P.y);
                 diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.66, 0.82), uNumb * hands * 0.7);
 
-                // Морщины: лицо, шея, тыльная сторона кистей
-                float wrinkleZone = smoothstep(2.6, 2.9, P.y) + hands;
-                float lines = pow(abs(sin(P.y * 95.0 + sin(P.x * 22.0) * 2.2)), 18.0);
-                float crows = pow(abs(sin(atan(P.y - 3.27, abs(P.x) - 0.3) * 9.0)), 30.0) * smoothstep(0.2, 0.05, length(vec2(abs(P.x) - 0.33, P.y - 3.27)));
-                diffuseColor.rgb *= 1.0 - uWrinkle * clamp(wrinkleZone, 0.0, 1.0) * (lines + crows) * 0.45;
+                // Морщины: лоб, уголки глаз, носогубные складки, тыльная сторона кистей
+                float forehead = smoothstep(3.36, 3.42, P.y) * (1.0 - smoothstep(3.55, 3.62, P.y)) * step(0.25, P.z);
+                float lines = pow(abs(sin(P.y * 140.0 + sin(P.x * 18.0) * 1.2)), 14.0);
+                vec2 eyeC = vec2(abs(P.x) - 0.19, P.y - 3.28);
+                float crows = pow(abs(sin(atan(eyeC.y, eyeC.x) * 8.0)), 26.0) * smoothstep(0.08, 0.02, length(eyeC)) * step(0.2, P.z);
+                float fold = smoothstep(0.012, 0.0, abs(length(vec2(abs(P.x) - 0.02, P.y - 3.2)) - 0.1)) * step(3.02, P.y) * step(P.y, 3.17) * step(0.3, P.z);
+                diffuseColor.rgb *= 1.0 - uWrinkle * (forehead * lines + crows + fold * 0.8 + hands * lines) * 0.5;
+
+                // Брови, губы и короткие волосы: без них голова читалась манекеном
+                float brow = smoothstep(0.016, 0.0, abs(P.y - 3.372 - 0.015 * sin(abs(P.x) * 14.0)))
+                    * smoothstep(0.23, 0.2, abs(P.x)) * smoothstep(0.04, 0.07, abs(P.x)) * step(0.28, P.z);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.2, 0.13, 0.09), brow * 0.85);
+                float lips = smoothstep(0.03, 0.0, abs(P.y - 3.036) - 0.02) * smoothstep(0.1, 0.07, abs(P.x)) * step(0.34, P.z);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.66, 0.34, 0.33), lips * 0.75);
+                float hairline = 3.5 + 0.06 * cos(P.x * 6.0) - smoothstep(0.1, 0.4, -P.z) * 0.35;
+                float hair = smoothstep(hairline - 0.01, hairline + 0.03, P.y) * (1.0 - smoothstep(0.3, 0.34, abs(P.x)) * step(3.35, P.y) * 0.0);
+                float strand = 0.8 + 0.2 * bodyNoise(vec3(P.x * 90.0, P.y * 30.0, P.z * 90.0)) + 0.06 * sin(P.x * 260.0 + bodyNoise(P * 30.0) * 6.0);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.16, 0.1, 0.07) * strand, hair);
 
                 // Ихтиоз: роговые пластины ромбической решёткой, как чешуя
                 vec2 sc = vec2(P.x * 13.0 + P.y * 7.0, P.x * 13.0 - P.y * 7.0) + vec2(P.z * 6.0);
@@ -214,7 +227,9 @@ export function createMuscleMaterial(uniforms, { clippingPlanes } = {}) {
                 float fine = 0.5 + 0.5 * sin(stripes * 3.1);
                 vec3 muscle = mix(vec3(0.42, 0.07, 0.09), vec3(0.8, 0.21, 0.23), fiber * 0.7 + fine * 0.3);
                 // Сухожилия у концов мышцы, фасция — светлые разводы между мышцами
-                float tendon = isMuscle ? smoothstep(0.72, 0.97, abs(vMuscle.y)) : smoothstep(0.55, 0.9, bodyNoise(P * 4.0)) * 0.4;
+                // Сухожилия — узкие светлые концы; граница мягкая, иначе на стыке
+                // мышц соседние вершины давали зубчатые белые пятна
+                float tendon = isMuscle ? smoothstep(0.985, 1.0, abs(vMuscle.y)) * 0.3 : 0.0;
                 muscle = mix(muscle, vec3(0.92, 0.88, 0.8), clamp(tendon, 0.0, 1.0));
                 // Судорога: мышца темнеет до багрового
                 muscle = mix(muscle, vec3(0.32, 0.04, 0.16), uCramp * 0.6);
