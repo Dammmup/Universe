@@ -287,6 +287,39 @@ export const useStore = create((set, get) => ({
     setCameraTarget: (target) => set({ cameraTarget: target })
 }));
 
+// ─── Сохранение прогресса ───────────────────────────────────────────────────
+// Перевёрнутые факторы и открытые миры переживают перезагрузку: собранный
+// мир — это то, к чему хочется вернуться. «Пройти путь снова» его сбрасывает.
+const PROGRESS_KEY = 'reality:progress';
+
+try {
+    const saved = JSON.parse(localStorage.getItem(PROGRESS_KEY) ?? 'null');
+    if (saved && typeof saved === 'object') {
+        useStore.setState({
+            reversedFactors: saved.reversedFactors ?? {},
+            discoveredScenarios: saved.discoveredScenarios ?? {},
+        });
+    }
+} catch {
+    // Хранилище недоступно или испорчено — начинаем с чистого мира
+}
+
+let saveTimer = null;
+useStore.subscribe((state, prev) => {
+    if (state.reversedFactors === prev.reversedFactors && state.discoveredScenarios === prev.discoveredScenarios) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+        try {
+            localStorage.setItem(PROGRESS_KEY, JSON.stringify({
+                reversedFactors: state.reversedFactors,
+                discoveredScenarios: state.discoveredScenarios,
+            }));
+        } catch {
+            // Приватный режим: прогресс просто не сохранится
+        }
+    }, 300);
+});
+
 // В режиме разработки стор доступен из консоли — так можно прыгать по стадиям
 // и проверять факторы без прохождения всего пути заново.
 if (import.meta.env.DEV) {
