@@ -6,12 +6,21 @@ import gsap from 'gsap';
 import { useStore } from '../store';
 import { latLonToArray, latLonToVec3, seededRandom, sunDirection, surfaceQuaternion } from '../lib/geo';
 import { locationsForStage } from '../data/locations';
+import { STAGE } from '../lib/stages';
 import { circleSprite, starSprite } from '../lib/sprites';
 import { auroraFragment, auroraVertex } from '../lib/shaders/aurora';
 import FactorMarker from './effects/FactorMarker';
 import EarthGlobe, { PlanetAtmosphere } from './earth/EarthGlobe';
 import NatureLayer from './earth/NatureLayer';
 import CityLayer from './earth/CityLayer';
+import {
+    Emissions,
+    Evaporation,
+    OceanCurrents,
+    OzoneShell,
+    PlateBoundaries,
+    PressureSystems,
+} from './earth/PlanetProcesses';
 
 const R = 10;
 
@@ -26,6 +35,18 @@ const CITY_SPIN = THREE.MathUtils.degToRad(205);
 // Центр диска = −90° − поворот: 305° (то же, что −55°) выводит в центр 35° з.д.
 // и оставляет до городского доворота короткие 100°, а не полный круг.
 const NATURE_SPIN = THREE.MathUtils.degToRad(305);
+
+/**
+ * Слой «Планета» смотрит чуть восточнее — на 20° з.д.: в диске Атлантика со
+ * стыками плит и течениями, промышленные Европа и восток США и циклоны.
+ */
+const PLANET_SPIN = THREE.MathUtils.degToRad(290);
+
+const SPIN = {
+    [STAGE.PLANET]: PLANET_SPIN,
+    [STAGE.NATURE]: NATURE_SPIN,
+    [STAGE.SOCIETY]: CITY_SPIN,
+};
 
 /**
  * Звёздное небо в двух слоях: россыпь слабых звёзд и отдельные яркие светила.
@@ -336,8 +357,15 @@ function FactorTrigger({ position, factorId, label, color = '#ffffaa', warn = fa
 // На карте остаются только факторы масштаба планеты. Всё местное живёт в
 // локациях (data/locations.js) — с орбиты лес и пустыня одинаково выглядят
 // цветным пятном, и факторы там были бы привязаны к пятну, а не к месту.
-const NATURE_FACTORS = [
-    { id: 'atmosphere', label: 'АТМОСФЕРА / ОПУСТЫНИВАНИЕ', color: '#dcdcff', lat: 44, lon: -30, lift: 2.2 },
+const PLANET_FACTORS = [
+    { id: 'atmosphere', label: 'АТМОСФЕРА / ОПУСТЫНИВАНИЕ', color: '#dcdcff', lat: 47, lon: -42, lift: 2.4 },
+    { id: 'aurora', label: 'ПОЛЯРНОЕ СИЯНИЕ / ЗАТУХАНИЕ', color: '#3fffcc', lat: 75, lon: -40, lift: 2.3 },
+    { id: 'tectonics', label: 'ДРЕЙФ ПЛИТ / ЗЕМЛЕТРЯСЕНИЯ', color: '#ffb070', lat: -14, lon: -13, lift: 1.5 },
+    { id: 'currents', label: 'ТЕЧЕНИЯ / ЗАСТОЙ', color: '#7fd4ff', lat: 37, lon: -64, lift: 1.4 },
+    { id: 'waterCycle', label: 'КРУГОВОРОТ ВОДЫ / ИССУШЕНИЕ', color: '#9fe0ff', lat: 6, lon: -32, lift: 1.5 },
+    { id: 'pressure', label: 'ЦИКЛОНЫ / БЛОКАДА', color: '#e8f0ff', lat: 21, lon: -58, lift: 2.2 },
+    { id: 'emissions', label: 'ВЫБРОСЫ / ЧИСТОЕ НЕБО', warn: true, lat: 52, lon: 12, lift: 1.8 },
+    { id: 'ozone', label: 'ОЗОНОВЫЙ СЛОЙ / ДЫРА', color: '#9a8cff', lat: -36, lon: 2, lift: 2.2 },
 ];
 
 const CIVILISATION_FACTORS = [
@@ -472,7 +500,9 @@ export default function Planet() {
     const planetGroup = useRef();
     const sunDir = useRef(new THREE.Vector3(1, 0.32, 0).normalize());
 
-    const isNature = stage === 2;
+    const isPlanet = stage === STAGE.PLANET;
+    const isNature = stage === STAGE.NATURE;
+    const isSociety = stage === STAGE.SOCIETY;
 
     // Камера не облетает шар: природа — Америки к объективу, цивилизация — Азия.
     const firstSpin = useRef(true);
@@ -482,7 +512,7 @@ export default function Planet() {
         // с Ближним Востоком оказывалась у самого лимба, где проекция сжимает
         // точки в кучу. Доворот до 205° ставит в центр ~65° в.д. — материки
         // от Рима до Токио умещаются в диске без давки.
-        const targetY = isNature ? NATURE_SPIN : CITY_SPIN;
+        const targetY = SPIN[stage] ?? NATURE_SPIN;
 
         if (firstSpin.current) {
             firstSpin.current = false;
@@ -496,10 +526,10 @@ export default function Planet() {
             ease: 'power2.inOut',
         });
         return () => tween.kill();
-    }, [isNature]);
+    }, [stage]);
 
     const globeTuning = useMemo(() => ({
-        drought: reversedFactors.ocean ? 1 : 0,
+        drought: reversedFactors.ocean || reversedFactors.waterCycle ? 1 : 0,
         desert: reversedFactors.atmosphere ? 1 : 0,
         waveStrength: reversedFactors.waves ? 0.004 : 0.055,
         waveAmp: reversedFactors.waves ? 0.001 : 0.014,
@@ -507,8 +537,8 @@ export default function Planet() {
         foam: reversedFactors.waves ? 0.15 : 1,
     }), [reversedFactors]);
 
-    const cloudOpacity = reversedFactors.atmosphere ? 0.22 : 0.85;
-    const smoggy = isNature ? false : !reversedFactors.ecology;
+    const cloudOpacity = reversedFactors.atmosphere ? 0.22 : (reversedFactors.waterCycle ? 0.4 : 0.85);
+    const smoggy = isSociety && !reversedFactors.ecology;
 
     return (
         <group>
@@ -543,14 +573,31 @@ export default function Planet() {
 
                     <CityLayer radius={R} reversedFactors={reversedFactors} />
 
-                    {isNature && (
+                    {isPlanet && (
                         <>
                             <AuroraCurtain pole="north" faded={!!reversedFactors.aurora} />
                             <AuroraCurtain pole="south" faded={!!reversedFactors.aurora} />
+                            <PlateBoundaries radius={R} quaking={!!reversedFactors.tectonics} />
+                            <OceanCurrents radius={R} stagnant={!!reversedFactors.currents} />
+                            <Evaporation radius={R} dry={!!reversedFactors.waterCycle} />
+                            <PressureSystems radius={R} blocked={!!reversedFactors.pressure} />
+                            <Emissions radius={R} clean={!!reversedFactors.emissions} />
+                            <OzoneShell radius={R} depleted={!!reversedFactors.ozone} />
+                            {!reversedFactors.emissions && (
+                                <PlanetAtmosphere
+                                    radius={R}
+                                    sunDir={sunDir}
+                                    color="#8a7a58"
+                                    sunsetColor="#8a6a3a"
+                                    intensity={0.55}
+                                    power={1.8}
+                                    scale={1.075}
+                                />
+                            )}
                         </>
                     )}
 
-                    {!isNature && (
+                    {isSociety && (
                         <>
                             <WarFlashes radius={R} atPeace={!!reversedFactors.war} />
                             {smoggy && (
@@ -567,7 +614,7 @@ export default function Planet() {
                         </>
                     )}
 
-                    <FactorField factors={isNature ? NATURE_FACTORS : CIVILISATION_FACTORS} />
+                    <FactorField factors={isPlanet ? PLANET_FACTORS : (isSociety ? CIVILISATION_FACTORS : [])} />
                     {locationsForStage(stage).map((location) => (
                         <LocationPin key={location.id} location={location} radius={R} />
                     ))}

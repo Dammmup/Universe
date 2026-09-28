@@ -7,7 +7,11 @@
  * камера подъезжает к ней, и раскрываются её собственные факторы.
  *
  * Координаты — в пространстве фигуры из `lib/anatomy.js`: стопы на y ≈ -3.7,
- * макушка на y ≈ 3.74.
+ * макушка на y ≈ 3.84.
+ *
+ * Факторы не повторяются: психика (эмоция, стресс, страх, эмпатия, мотивация,
+ * привязанность, «я») живёт в режиме «Эмоции», а здесь — только то, у чего
+ * есть орган или часть тела.
  */
 
 /** Общий план: фигура целиком в кадре. */
@@ -35,12 +39,12 @@ export const BODY_REGIONS = [
         title: 'Грудь',
         hotspots: [{ shape: 'sphere', pos: [0, 2.0, 0], radius: 0.8 }],
         shot: { pos: [0.6, 2.3, 5.2], look: [0, 1.95, 0], fov: 46 },
-        labelAt: [1.85, 2.3, 0.2],
+        labelAt: [1.55, 2.2, 0.2],
         factors: [
             { id: 'circulation', label: 'КРОВЬ', reverse: 'ИШЕМИЯ', color: '#d61330', pos: [1.28, 2.35, 0.5] },
             { id: 'breathing', label: 'ДЫХАНИЕ', reverse: 'ГИПОКСИЯ', color: '#1f97c9', pos: [-1.28, 2.35, 0.5] },
             { id: 'heartRhythm', label: 'РИТМ', reverse: 'АРИТМИЯ', color: '#b0244f', pos: [1.24, 1.55, 0.55] },
-            { id: 'emotion', label: 'ЭМОЦИЯ', reverse: 'ОНЕМЕНИЕ', color: '#d59a10', pos: [-1.24, 1.55, 0.55] },
+            { id: 'bloodPressure', label: 'ДАВЛЕНИЕ', reverse: 'ГИПЕРТОНИЯ', color: '#b0567a', pos: [-1.24, 1.55, 0.55] },
         ],
     },
     {
@@ -48,7 +52,7 @@ export const BODY_REGIONS = [
         title: 'Живот',
         hotspots: [{ shape: 'sphere', pos: [0, 0.85, 0], radius: 0.78 }],
         shot: { pos: [-0.6, 1.15, 5.2], look: [0, 0.85, 0], fov: 46 },
-        labelAt: [1.85, 0.75, 0.2],
+        labelAt: [1.45, 0.85, 0.2],
         factors: [
             { id: 'digestion', label: 'ОБМЕН', reverse: 'ТОКСИЧНОСТЬ', color: '#c08a1e', pos: [1.28, 1.15, 0.5] },
             { id: 'immunity', label: 'ИММУНИТЕТ', reverse: 'АУТОИММУННОСТЬ', color: '#5aa62a', pos: [-1.28, 1.15, 0.5] },
@@ -64,7 +68,7 @@ export const BODY_REGIONS = [
             { shape: 'capsule', pos: [-1.03, 1.15, 0.02], radius: 0.3, height: 2.1, tilt: -0.1 },
         ],
         shot: { pos: [1.9, 1.5, 5.4], look: [0.25, 1.1, 0], fov: 48 },
-        labelAt: [-2.35, 1.1, 0.2],
+        labelAt: [-1.95, 0.45, 0.2],
         factors: [
             { id: 'movement', label: 'ДВИЖЕНИЕ', reverse: 'ПАРАЛИЧ', color: '#3a4a63', pos: [1.64, 1.85, 0.45] },
             { id: 'grip', label: 'ХВАТ', reverse: 'БЕССИЛИЕ', color: '#7a5a3a', pos: [1.64, 0.3, 0.45] },
@@ -80,7 +84,7 @@ export const BODY_REGIONS = [
             { shape: 'capsule', pos: [-0.37, -1.6, 0], radius: 0.36, height: 3.4 },
         ],
         shot: { pos: [0, -1.2, 5.9], look: [0, -1.8, 0], fov: 50 },
-        labelAt: [1.9, -1.9, 0.2],
+        labelAt: [1.15, -2.1, 0.2],
         factors: [
             { id: 'balance', label: 'РАВНОВЕСИЕ', reverse: 'ПАДЕНИЕ', color: '#2a8a8a', pos: [1.16, -1.05, 0.5] },
             { id: 'endurance', label: 'ВЫНОСЛИВОСТЬ', reverse: 'ИСТОЩЕНИЕ', color: '#a0491e', pos: [-1.16, -1.05, 0.5] },
@@ -94,11 +98,11 @@ export const BODY_REGIONS = [
         hotspots: [{ shape: 'capsule', pos: [0, 1.7, -0.3], radius: 0.26, height: 1.9 }],
         // Единственная область, к которой камера заходит со спины
         shot: { pos: [3.3, 2.2, -3.7], look: [0, 1.7, -0.2], fov: 46 },
-        labelAt: [-1.9, 2.65, 0.2],
+        labelAt: [-1.45, 2.75, 0.2],
         factors: [
             { id: 'nerve', label: 'ПРОВОДИМОСТЬ', reverse: 'БЛОК', color: '#3aa0c9', pos: [1.16, 2.35, -0.6] },
             { id: 'posture', label: 'ОСАНКА', reverse: 'ИСКРИВЛЕНИЕ', color: '#7a6a9c', pos: [-1.16, 1.9, -0.6] },
-            { id: 'stress', label: 'СТРЕСС', reverse: 'ВОССТАНОВЛЕНИЕ', color: '#d92d1c', pos: [0.00, 1.15, -1.1] },
+            { id: 'reflex', label: 'РЕФЛЕКС', reverse: 'ЗАТОРМОЖЕННОСТЬ', color: '#d92d1c', pos: [0.00, 1.15, -1.1] },
         ],
     },
 ];

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useStore } from '../store';
 import { locationById, locationsForStage } from '../data/locations';
+import { STAGE } from '../lib/stages';
 
 /**
  * Нижняя панель мезо-уровней: где зритель находится и куда можно нырнуть.
@@ -15,11 +16,19 @@ export default function MesoPanel({ stage, touch }) {
 
     const current = locationById(location);
     const list = locationsForStage(stage);
-    const isNature = stage === 2;
-    const kicker = isNature ? 'Мезо-уровень 1 · Природа и стихии' : 'Мезо-уровень 2 · Общество и города';
-    const kickerColor = isNature ? 'text-emerald-300/80' : 'text-amber-300/80';
+    const LAYER = {
+        [STAGE.PLANET]: { kicker: 'Мезо-уровень 1 · Планета', color: 'text-sky-300/80' },
+        [STAGE.NATURE]: { kicker: 'Мезо-уровень 2 · Природа и стихии', color: 'text-emerald-300/80' },
+        [STAGE.SOCIETY]: { kicker: 'Мезо-уровень 3 · Общество и города', color: 'text-amber-300/80' },
+    };
+    const { kicker, color: kickerColor } = LAYER[stage] ?? LAYER[STAGE.NATURE];
+    const isPlanet = stage === STAGE.PLANET;
 
-    const hint = current
+    const hint = isPlanet
+        ? (touch
+            ? 'Процессы всей Земли: плиты, течения, круговорот воды, давление, озон. Касание — фактор. Свайп дальше — к природе.'
+            : 'Процессы всей Земли: плиты, течения, круговорот воды, давление, озон. Кликай на факторы. Скролль дальше — к природе.')
+        : current
         ? (touch ? 'Касание метки — фактор. Двумя пальцами — облёт. Свайп назад — к карте.' : 'Кликай на метки факторов, вращай камеру. Колесо назад — к карте.')
         : (touch ? 'Коснись локации на планете или выбери ниже. Свайп дальше — следующий слой.' : 'Выбери локацию на планете или ниже. Скролль дальше — следующий слой.');
 

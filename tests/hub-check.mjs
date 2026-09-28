@@ -28,7 +28,7 @@ const state = () => page.evaluate(() => {
 await page.evaluate(() => {
     const s = window.realityStore.getState();
     s.triggerBang();
-    s.setStage(2);
+    s.setStage(3);
 });
 await page.waitForTimeout(3000);
 await page.screenshot({ path: 'tests/screenshots/hub-nature.png' });
@@ -76,6 +76,6 @@ await page.screenshot({ path: 'tests/screenshots/hub-scenario.png' });
 
 console.log(JSON.stringify({ inDesert, backOnMap, society, scen, errors }, null, 2));
 await browser.close();
-const ok = inDesert.location === 'desert' && backOnMap.location === null && backOnMap.stage === 2
-    && society.stage === 3 && scen.queue.includes('noWars') && !errors.length;
+const ok = inDesert.location === 'desert' && backOnMap.location === null && backOnMap.stage === 3
+    && society.stage === 4 && scen.queue.includes('noWars') && !errors.length;
 process.exit(ok ? 0 : 1);

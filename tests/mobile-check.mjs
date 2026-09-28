@@ -51,7 +51,7 @@ await page.waitForTimeout(7000);
 report.push({ step: 'bang', stage: await stage() });
 await page.screenshot({ path: `${OUT}/1-cosmos.png` });
 
-for (const [name, wait] of [['nature', 9000], ['society', 3500], ['human', 5000], ['cell', 5000]]) {
+for (const [name, wait] of [['planet', 9000], ['nature', 3500], ['society', 3500], ['human', 5000], ['cell', 5000]]) {
     await swipe(true);
     await page.waitForTimeout(wait);
     report.push({ step: name, stage: await stage() });
@@ -81,7 +81,8 @@ const ok = report[0].stage === 1
     && report[2].stage === 3
     && report[3].stage === 4
     && report[4].stage === 5
-    && report[5].stage === 4
+    && report[5].stage === 6
+    && report[6].stage === 5
     && errors.length === 0;
 
 await browser.close();

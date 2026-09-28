@@ -1,3 +1,5 @@
+import { STAGE } from '../lib/stages';
+
 /**
  * Локации мезо-уровней.
  *
@@ -6,7 +8,9 @@
  * на карте раскрывается в собственную диораму со своим масштабом — десятки
  * километров местности, а не планета целиком.
  *
- * У каждой локации свой набор факторов. Факторы не повторяются между
+ * У каждой локации свой набор факторов. Процессы масштаба всей планеты —
+ * тектоника, течения, круговорот воды, озон — живут на слое «Планета» (Planet.jsx).
+ * Факторы не повторяются между
  * локациями: переворачивая их в разных местах, зритель собирает комбинации
  * (см. data/scenarios.js).
  *
@@ -52,7 +56,7 @@ export const NATURE_LOCATIONS = [
         lat: 74, lon: -40,
         accent: '#bfeaff',
         horizon: '#1a2a44',
-        factors: ['glaciers', 'aurora', 'permafrost', 'starField'],
+        factors: ['glaciers', 'polarNight', 'permafrost', 'starField'],
         shot: { pos: [0, 9, 34], look: [0, 4, 0], fov: 52 },
     },
     {
@@ -62,7 +66,7 @@ export const NATURE_LOCATIONS = [
         lat: 14, lon: -40,
         accent: '#58c8ff',
         horizon: '#8fc2dc',
-        factors: ['waves', 'ocean', 'coral', 'currents'],
+        factors: ['waves', 'ocean', 'coral', 'plankton'],
         shot: { pos: [0, 12, 32], look: [0, 0, 0], fov: 50 },
     },
     {
@@ -72,7 +76,7 @@ export const NATURE_LOCATIONS = [
         lat: -28, lon: -70,
         accent: '#d9c1a0',
         horizon: '#aebfd4',
-        factors: ['tectonics', 'volcano', 'snowcap', 'highlands'],
+        factors: ['avalanche', 'volcano', 'snowcap', 'highlands'],
         shot: { pos: [0, 12, 40], look: [0, 6, 0], fov: 50 },
     },
 ];
@@ -154,7 +158,26 @@ export const ALL_LOCATIONS = [...NATURE_LOCATIONS, ...CITY_LOCATIONS];
 
 export const locationById = (id) => ALL_LOCATIONS.find((l) => l.id === id) ?? null;
 
-export const locationsForStage = (stage) => (stage === 3 ? CITY_LOCATIONS : NATURE_LOCATIONS);
+/** Карта природы — точки природных локаций, карта общества — города, у слоя «Планета» точек нет. */
+export const locationsForStage = (stage) => {
+    if (stage === STAGE.SOCIETY) return CITY_LOCATIONS;
+    if (stage === STAGE.NATURE) return NATURE_LOCATIONS;
+    return [];
+};
 
-/** Какой стадии принадлежит локация: природа — 2, общество — 3. */
-export const stageOfLocation = (id) => (CITY_LOCATIONS.some((l) => l.id === id) ? 3 : 2);
+/** Какому слою принадлежит локация: природа или общество. */
+export const stageOfLocation = (id) => (CITY_LOCATIONS.some((l) => l.id === id) ? STAGE.SOCIETY : STAGE.NATURE);
+
+/** Факторы, которые живут не в локации, а на самой планете-карте. */
+const PLANET_WIDE = {
+    atmosphere: 'Планета', aurora: 'Планета', tectonics: 'Планета', currents: 'Планета',
+    waterCycle: 'Планета', pressure: 'Планета', emissions: 'Планета', ozone: 'Планета',
+    sunEnergy: 'Небо Земли', moonPhase: 'Небо Земли', war: 'Карта общества',
+};
+
+/** Где живёт фактор: «Джунгли · Амазония», «Планета» или null для других уровней. */
+export function placeOfFactor(id) {
+    const loc = ALL_LOCATIONS.find((l) => l.factors.includes(id));
+    if (loc) return { title: loc.title, place: loc.place };
+    return PLANET_WIDE[id] ? { title: PLANET_WIDE[id], place: null } : null;
+}

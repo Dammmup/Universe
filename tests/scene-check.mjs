@@ -13,10 +13,11 @@ const OUT = 'tests/screenshots';
 const STAGES = [
     { stage: 0, name: '0-singularity', settle: 2500 },
     { stage: 1, name: '1-cosmos', settle: 6000 },
-    { stage: 2, name: '2-nature', settle: 6000 },
-    { stage: 3, name: '3-civilisation', settle: 6000 },
-    { stage: 4, name: '4-human', settle: 4000 },
-    { stage: 5, name: '5-microcosmos', settle: 3500 },
+    { stage: 2, name: '2-planet', settle: 6000 },
+    { stage: 3, name: '3-nature', settle: 6000 },
+    { stage: 4, name: '4-civilisation', settle: 6000 },
+    { stage: 5, name: '5-human', settle: 4000 },
+    { stage: 6, name: '6-microcosmos', settle: 3500 },
 ];
 
 mkdirSync(OUT, { recursive: true });
@@ -97,7 +98,7 @@ for (const item of STAGES) {
 await page.evaluate(() => {
     const s = window.realityStore.getState();
     s.setStage(2);
-    ['ocean', 'waves', 'photosynthesis', 'tectonics', 'aurora', 'atmosphere'].forEach((id) => {
+    ['tectonics', 'currents', 'waterCycle', 'pressure', 'emissions', 'ozone', 'aurora', 'atmosphere'].forEach((id) => {
         window.realityStore.getState().setActiveFactor(id);
         window.realityStore.getState().toggleReverse();
     });
@@ -105,13 +106,13 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(5000);
 const reversedStats = await measure();
-await page.screenshot({ path: `${OUT}/2-nature-reversed.png` });
+await page.screenshot({ path: `${OUT}/2-planet-reversed.png` });
 console.log(`stage 2 с реверсами: ${reversedStats.fps} fps, draw calls ${reversedStats.calls}`);
 
 await page.evaluate(() => {
     const s = window.realityStore.getState();
     s.resetJourney();
-    s.setStage(3);
+    s.setStage(4);
     ['progress', 'urbanization', 'trade', 'ecology', 'war'].forEach((id) => {
         window.realityStore.getState().setActiveFactor(id);
         window.realityStore.getState().toggleReverse();

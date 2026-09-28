@@ -541,7 +541,9 @@ function AuroraRibbon({ faded }) {
 
 export function Arctic() {
     const melting = useReversed('glaciers');
-    const faded = useReversed('aurora');
+    // Полярный день: солнце кружит над горизонтом, сияние тонет в свете
+    const polarDay = useReversed('polarNight');
+    const faded = polarDay;
     const thawing = useReversed('permafrost');
     const hazed = useReversed('starField');
 
@@ -592,19 +594,25 @@ export function Arctic() {
     return (
         <group>
             <Atmosphere
-                sky={{
-                    top: '#02050e',
-                    horizon: hazed ? '#6a4a3a' : '#16233c',
-                    bottom: '#070a12',
-                    sunColor: '#5a6a90',
-                    sunDir: [-0.4, 0.3, -0.85],
-                    sunSize: 0.5,
-                    stars: hazed ? 0.08 : 1,
-                    haze: hazed ? 2.5 : 0.35,
+                sky={polarDay
+                    ? { top: '#5a82b8', horizon: hazed ? '#d8b090' : '#f0d8c0', bottom: '#8aa0b8', sunColor: '#ffd8a0', sunDir: [0.55, 0.07, -0.8], sunSize: 1.6, stars: 0, haze: 1.6 }
+                    : {
+                        top: '#02050e',
+                        horizon: hazed ? '#6a4a3a' : '#16233c',
+                        bottom: '#070a12',
+                        sunColor: '#5a6a90',
+                        sunDir: [-0.4, 0.3, -0.85],
+                        sunSize: 0.5,
+                        stars: hazed ? 0.08 : 1,
+                        haze: hazed ? 2.5 : 0.35,
+                    }}
+                fog={{
+                    color: polarDay ? (hazed ? '#c8a888' : '#dfd6cc') : (hazed ? '#4a3a34' : '#16233c'),
+                    near: 40,
+                    far: hazed ? 120 : 190,
                 }}
-                fog={{ color: hazed ? '#4a3a34' : '#16233c', near: 40, far: hazed ? 120 : 190 }}
-                sun={{ position: [-28, 26, -40], color: '#b8ccff', intensity: 0.9 }}
-                hemi={{ sky: '#5a7ab0', ground: '#1a2030', intensity: 0.55 }}
+                sun={{ position: polarDay ? [40, 8, -50] : [-28, 26, -40], color: polarDay ? '#ffd8b0' : '#b8ccff', intensity: polarDay ? 2.4 : 0.9 }}
+                hemi={{ sky: polarDay ? '#c8dcf0' : '#5a7ab0', ground: polarDay ? '#8a9aaa' : '#1a2030', intensity: polarDay ? 0.9 : 0.55 }}
             />
 
             <Terrain height={arcticHeight} paint={paint} blend={melting ? 1 : 0} blend2={thawing ? 1 : 0} roughness={0.7} />
@@ -623,7 +631,7 @@ export function Arctic() {
             <Particles mode="fall" count={500} area={[80, 25, 60]} center={[0, 12, -6]} size={0.14} speed={1.2} wind={2} color="#ffffff" amount={melting ? 0.2 : 0.8} opacity={0.7} seed={23} />
 
             <Marker id="glaciers" position={[10, 7, -13]} color="#dff2ff" reverseColor="#6fb6e0" />
-            <Marker id="aurora" position={[-2, 21, -34]} color="#5cffc0" reverseColor="#7a8aa0" />
+            <Marker id="polarNight" position={[-2, 21, -34]} color="#5cffc0" reverseColor="#ffd08a" />
             <Marker id="permafrost" position={[-22, 5.5, 6]} color="#c9e6ff" reverseColor="#c08a5a" />
             <Marker id="starField" position={[20, 19, -30]} color="#ffffff" reverseColor="#ffaa66" />
         </group>
@@ -659,7 +667,8 @@ export function Ocean() {
     const calm = useReversed('waves');
     const drained = useReversed('ocean');
     const bleached = useReversed('coral');
-    const stagnant = useReversed('currents');
+    // Мёртвая зона: светящийся планктон гаснет, вода мутнеет
+    const stagnant = useReversed('plankton');
 
     const coralGeo = useMemo(() => mergeParts([
         { geo: new THREE.CylinderGeometry(0.08, 0.14, 1.1, 5), color: '#ffffff', pos: [0, 0.55, 0] },
@@ -748,7 +757,7 @@ export function Ocean() {
             <Marker id="waves" position={[-15, 4, 8]} color="#8ce0ff" reverseColor="#cfd8e0" />
             <Marker id="ocean" position={[-6, 9, -20]} color="#4ab5ff" reverseColor="#e0c080" />
             <Marker id="coral" position={[14, 3.5, 4]} color="#ff7aa8" reverseColor="#e8e4dc" />
-            <Marker id="currents" position={[-24, 3.5, -8]} color="#7fe8ff" reverseColor="#9a9a70" />
+            <Marker id="plankton" position={[-24, 3.5, -8]} color="#7fe8ff" reverseColor="#9a9a70" />
         </group>
     );
 }
@@ -776,7 +785,8 @@ function mountainHeight(x, z) {
 const meadowMask = (x, z, y, slope) => smoothstep(0.7, 0.4, slope) * smoothstep(9, 4, y) * smoothstep(-0.5, 0.8, y);
 
 export function Mountains() {
-    const quake = useReversed('tectonics');
+    // Лавина: склон трясёт, по долине идёт снежная пыль и камнепад
+    const quake = useReversed('avalanche');
     const erupting = useReversed('volcano');
     const bare = useReversed('snowcap');
     const scree = useReversed('highlands');
@@ -883,10 +893,7 @@ export function Mountains() {
                     <circleGeometry args={[2.6, 24]} />
                 </FadeMesh>
                 <Flow paths={lavaPaths} count={260} speed={0.012} amount={erupting ? 1 : 0} color="#ff6a1a" size={0.9} spread={0.6} seed={41} />
-                {/* Трещина разлома через долину */}
-                <FadeMesh on={quake} opacity={0.9} color="#ff7a3a" additive toneMapped={false} position={[0, 0.3, 4]} rotation={[-Math.PI / 2, 0, 0.35]}>
-                    <planeGeometry args={[90, 0.35]} />
-                </FadeMesh>
+
             </group>
 
             <GlowLight position={[VOLCANO.x, VOLCANO.h + 3, VOLCANO.z]} color="#ff6a2a" intensity={500} distance={90} on={erupting} flicker={1} />
@@ -894,9 +901,11 @@ export function Mountains() {
             <Particles mode="rise" count={220} area={[14, 40, 14]} center={[VOLCANO.x - 4, VOLCANO.h + 22, VOLCANO.z]} size={10} speed={3} wind={-6} color="#3a3230" amount={erupting ? 1 : 0} opacity={0.3} additive={false} seed={43} />
             <Particles mode="fall" count={600} area={[80, 30, 60]} center={[0, 14, -6]} size={0.18} speed={1.5} wind={-1} color="#6a5a50" amount={erupting ? 0.8 : 0} opacity={0.8} additive={false} seed={44} />
             <Particles mode="fall" count={300} area={[70, 16, 40]} center={[0, 10, -10]} size={0.35} speed={9} color="#8a7a6a" amount={quake ? 1 : 0} opacity={0.8} additive={false} seed={45} />
+            {/* Снежная пыль лавины стекает со склонов в долину */}
+            <Particles mode="drift" count={260} area={[60, 10, 30]} center={[-4, 7, -8]} size={6} speed={6} color="#f4f6fa" amount={quake ? 1 : 0} opacity={0.22} additive={false} seed={46} />
             <Flock count={3} formation="swarm" center={[-10, 22, -12]} radius={[18, 12]} color="#1e1e20" size={1.4} seed={12} speed={0.05} />
 
-            <Marker id="tectonics" position={[-14, 5, 10]} color="#d9a55a" reverseColor="#ff5a3a" />
+            <Marker id="avalanche" position={[-14, 12, -6]} color="#e8f0ff" reverseColor="#ff8a5a" />
             <Marker id="volcano" position={[VOLCANO.x, VOLCANO.h + 6, VOLCANO.z + 4]} color="#ffb070" reverseColor="#ff4a1a" />
             <Marker id="snowcap" position={[-20, 22, -24]} color="#ffffff" reverseColor="#c8a080" />
             <Marker id="highlands" position={[14, 5, 8]} color="#9dff8a" reverseColor="#b0a090" />

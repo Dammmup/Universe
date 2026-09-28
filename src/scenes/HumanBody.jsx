@@ -6,11 +6,13 @@ import { useStore } from '../store';
 import { BODY_REGIONS } from '../data/body';
 import { buildFigure, disposeFigure } from '../lib/anatomy';
 import {
+    buildBladder,
     buildBrainstem,
     buildCerebellum,
     buildColon,
     buildHeart,
     buildHemisphere,
+    buildKidney,
     buildLiver,
     buildLung,
     buildSmallIntestine,
@@ -29,7 +31,7 @@ const _dummy = new THREE.Object3D();
  * четыре анатомических подписи поверх шести названий областей — каша. Органы
  * подписываются, когда область выбрана и камера уже стоит рядом.
  */
-function Label({ position, children, region, size = 0.16 }) {
+function Label({ position, children, region, size = 0.11 }) {
     const bodyRegion = useStore((s) => s.bodyRegion);
     if (bodyRegion !== region) return null;
 
@@ -136,15 +138,27 @@ function FlowCells({ curve, count, color, speed, reversed, radius = 0.035 }) {
 /**
  * Где органы стоят в теле. Координаты — пространство фигуры из `lib/anatomy.js`:
  * грудная клетка около y = 2, талия около 1.1, таз около 0.3.
+ *
+ * Фигура смотрит на зрителя (+Z), поэтому правая сторона тела — это −X,
+ * левая — +X. Прежде органы стояли зеркально: печень и полая вена слева
+ * от тела, желудок и верхушка сердца справа.
  */
+const BODY_LEFT = 1;
+const BODY_RIGHT = -1;
+
 const ORGAN_AT = {
     brain: [0, 3.34, 0.0],
-    heart: [-0.10, 1.90, 0.10],
-    lungLeft: [-0.36, 1.99, 0.02],
-    lungRight: [0.36, 1.99, 0.02],
-    liver: [0.20, 1.34, 0.06],
-    stomach: [-0.22, 1.30, 0.10],
+    heart: [BODY_LEFT * 0.10, 1.90, 0.10],
+    lungLeft: [BODY_LEFT * 0.36, 1.99, 0.02],
+    lungRight: [BODY_RIGHT * 0.36, 1.99, 0.02],
+    liver: [BODY_RIGHT * 0.20, 1.34, 0.06],
+    stomach: [BODY_LEFT * 0.22, 1.30, 0.10],
     gut: [0, 0.82, 0.06],
+    // Почки лежат за кишечником по бокам от позвоночника, правая чуть ниже —
+    // её поджимает печень
+    kidneyLeft: [BODY_LEFT * 0.25, 1.2, -0.2],
+    kidneyRight: [BODY_RIGHT * 0.25, 1.14, -0.2],
+    bladder: [0, 0.22, 0.1],
 };
 
 function Heart({ reversed }) {
@@ -160,14 +174,14 @@ function Heart({ reversed }) {
     // Дуга аорты живёт в координатах фигуры: она уходит из сердца вниз вдоль
     // позвоночника и не принадлежит локальной геометрии органа
     const aorta = useMemo(() => makeCurve([
-        [-0.04, 2.00, 0.06],
+        [0.06, 2.00, 0.06],
         [0.02, 2.22, 0.02],
         [0.11, 2.32, -0.06],
-        [0.02, 2.24, -0.14],
-        [-0.02, 1.80, -0.13],
-        [-0.02, 1.10, -0.11],
-        [-0.02, 0.40, -0.07],
-        [-0.02, 0.05, -0.05],
+        [0.05, 2.24, -0.14],
+        [0.04, 1.80, -0.13],
+        [0.03, 1.10, -0.11],
+        [0.02, 0.40, -0.07],
+        [0.02, 0.05, -0.05],
     ]), []);
 
     useFrame((state) => {
@@ -184,6 +198,9 @@ function Heart({ reversed }) {
     return (
         <group>
             <group ref={pulse} position={ORGAN_AT.heart}>
+                {/* Геометрия сердца собрана с верхушкой к −X: зеркало разворачивает
+                    её к левой стороне тела, как в настоящей грудной клетке */}
+                <group scale={[-1, 1, 1]}>
                 <TissueOrgan
                     geometry={body}
                     color={color}
@@ -199,6 +216,7 @@ function Heart({ reversed }) {
                 <mesh geometry={atrium} position={[-0.13, 0.13, 0.02]} scale={[0.88, 0.72, 0.88]}>
                     <meshStandardMaterial color={reversed ? '#5a1e22' : '#e8697a'} emissive="#33050a" emissiveIntensity={0.3} roughness={0.5} />
                 </mesh>
+                </group>
             </group>
             <mesh raycast={() => null}>
                 <tubeGeometry args={[aorta, 56, reversed ? 0.022 : 0.033, 8, false]} />
@@ -246,7 +264,9 @@ function Lungs({ reversed }) {
         const breath = reversed
             ? 0.93 + Math.sin(t * 1.05) * 0.012
             : 1 + Math.sin(t * 1.55) * 0.045;
-        ref.current.scale.set(breath, breath, breath);
+        // Калибровка по грудной клетке: доли от ключицы до диафрагмы и
+        // почти до боковых рёбер — прежде они занимали её треть
+        ref.current.scale.set(breath * 1.28, breath * 1.08, breath * 1.2);
     });
 
     const color = reversed ? '#3f5a66' : '#89c2d8';
@@ -263,8 +283,8 @@ function Lungs({ reversed }) {
                     glow={reversed ? 0.08 : 0.24}
                     fold={0.013}
                     alpha={0.88}
-                    position={ORGAN_AT.lungLeft}
-                    rotation={[0, 0, 0.06]}
+                    position={[ORGAN_AT.lungLeft[0] / 1.28, ORGAN_AT.lungLeft[1] / 1.08, ORGAN_AT.lungLeft[2]]}
+                    rotation={[0, 0, -0.06]}
                 />
                 <TissueOrgan
                     geometry={right}
@@ -274,8 +294,8 @@ function Lungs({ reversed }) {
                     glow={reversed ? 0.08 : 0.24}
                     fold={0.013}
                     alpha={0.88}
-                    position={ORGAN_AT.lungRight}
-                    rotation={[0, 0, -0.06]}
+                    position={[ORGAN_AT.lungRight[0] / 1.28, ORGAN_AT.lungRight[1] / 1.08, ORGAN_AT.lungRight[2]]}
+                    rotation={[0, 0, 0.06]}
                 />
             </group>
             <mesh raycast={() => null}>
@@ -310,7 +330,8 @@ function Brain({ reversed }) {
     const crease = reversed ? '#4a3048' : '#a8578c';
 
     return (
-        <group position={ORGAN_AT.brain}>
+        // Масштаб подогнан под череп фигуры: прежний мозг занимал половину головы
+        <group position={ORGAN_AT.brain} scale={1.14}>
             {/* Два полушария с продольной щелью между ними */}
             <TissueOrgan
                 geometry={hemisphere}
@@ -376,10 +397,12 @@ function DigestiveSystem({ reversed }) {
                 glow={0.18}
                 fold={0.016}
                 position={ORGAN_AT.liver}
-                rotation={[0, 0, -0.12]}
+                rotation={[0, 0, 0.12]}
+                scale={[-1, 1, 1]}
             />
             <TissueOrgan
                 geometry={stomach}
+                scale={[-1, 1, 1]}
                 color={reversed ? '#5b4a2a' : '#d4a056'}
                 crease={reversed ? '#2a2010' : '#8a6030'}
                 emissive={reversed ? '#191000' : '#3d2104'}
@@ -409,6 +432,106 @@ function DigestiveSystem({ reversed }) {
     );
 }
 
+
+/** Почки и мочевой пузырь — органы «Фильтрации», которой прежде нечем было показаться. */
+function Kidneys({ reversed }) {
+    // Выпуклая сторона почки смотрит наружу, вогнутая — на позвоночник
+    const left = useMemo(() => buildKidney(BODY_LEFT), []);
+    const right = useMemo(() => buildKidney(BODY_RIGHT), []);
+    const bladder = useMemo(() => buildBladder(), []);
+    useEffect(() => () => {
+        left.dispose();
+        right.dispose();
+        bladder.dispose();
+    }, [left, right, bladder]);
+
+    const color = reversed ? '#4a3026' : '#a4383c';
+    const crease = reversed ? '#2a1a14' : '#6a1a20';
+    return (
+        <group>
+            <TissueOrgan geometry={left} color={color} crease={crease} emissive={reversed ? '#100806' : '#3a0a10'} glow={0.22} fold={0.012} position={ORGAN_AT.kidneyLeft} rotation={[0, 0, 0.18]} />
+            <TissueOrgan geometry={right} color={color} crease={crease} emissive={reversed ? '#100806' : '#3a0a10'} glow={0.22} fold={0.012} position={ORGAN_AT.kidneyRight} rotation={[0, 0, -0.18]} />
+            <TissueOrgan
+                geometry={bladder}
+                color={reversed ? '#6a5a2a' : '#e8c062'}
+                crease={reversed ? '#3a3010' : '#a88030'}
+                emissive={reversed ? '#100c00' : '#3a2a04'}
+                glow={0.2}
+                fold={0.008}
+                alpha={0.8}
+                position={ORGAN_AT.bladder}
+            />
+        </group>
+    );
+}
+
+/**
+ * Скелет: рёбра, грудина, ключицы, таз и длинные кости ног и рук. Без них
+ * органы висели в пустой оболочке, и тело читалось как мешок с содержимым.
+ * reversed — «Хрупкость»: кости сереют и истончаются.
+ */
+function Skeleton({ reversed }) {
+    const ribs = useMemo(() => {
+        const curves = [];
+        // Полуширина рёбер сверху вниз: верхние короче, нижние «плавающие»
+        const widths = [0.44, 0.53, 0.6, 0.65, 0.68, 0.69, 0.68, 0.65, 0.6, 0.53];
+        widths.forEach((rx, i) => {
+            const y = 2.3 - i * 0.085;
+            const reach = i < 7 ? 0.86 : 0.7 - (i - 7) * 0.08;
+            [-1, 1].forEach((side) => {
+                const pts = [];
+                for (let k = 0; k <= 12; k += 1) {
+                    const phi = (k / 12) * Math.PI * reach;
+                    pts.push([side * rx * Math.sin(phi), y - 0.16 * (k / 12), -0.3 * Math.cos(phi) + 0.02]);
+                }
+                curves.push(makeCurve(pts));
+            });
+        });
+        return curves;
+    }, []);
+    const clavicles = useMemo(() => [-1, 1].map((side) => makeCurve([
+        [side * 0.06, 2.42, 0.18], [side * 0.36, 2.44, 0.14], [side * 0.72, 2.38, -0.02],
+    ])), []);
+    const bones = useMemo(() => [
+        // бедренные и большеберцовые кости
+        ...[-1, 1].map((side) => makeCurve([[side * 0.3, 0.2, 0], [side * 0.35, -0.6, 0.02], [side * 0.38, -1.55, 0.02]])),
+        ...[-1, 1].map((side) => makeCurve([[side * 0.38, -1.68, 0.03], [side * 0.37, -2.5, 0.01], [side * 0.36, -3.4, -0.02]])),
+        // плечевые и кости предплечья
+        ...[-1, 1].map((side) => makeCurve([[side * 0.88, 2.2, 0], [side * 0.98, 1.6, 0.01], [side * 1.05, 1.05, 0]])),
+        ...[-1, 1].map((side) => makeCurve([[side * 1.07, 0.95, 0.01], [side * 1.12, 0.5, 0.02], [side * 1.16, 0.08, 0.03]])),
+    ], []);
+
+    const tone = reversed ? '#9aa0a8' : '#efe6d6';
+    const opacity = reversed ? 0.35 : 0.75;
+    const thin = reversed ? 0.6 : 1;
+
+    return (
+        <group>
+            {ribs.map((curve, i) => (
+                <mesh key={`r${i}`} raycast={() => null}>
+                    <tubeGeometry args={[curve, 20, 0.018 * thin, 5, false]} />
+                    <meshStandardMaterial color={tone} roughness={0.6} transparent opacity={opacity * 0.8} depthWrite={false} />
+                </mesh>
+            ))}
+            {/* Грудина */}
+            <mesh position={[0, 2.02, 0.33]} rotation={[0.12, 0, 0]} raycast={() => null}>
+                <boxGeometry args={[0.09, 0.6, 0.03]} />
+                <meshStandardMaterial color={tone} roughness={0.6} transparent opacity={opacity} depthWrite={false} />
+            </mesh>
+            {[...clavicles, ...bones].map((curve, i) => (
+                <mesh key={`b${i}`} raycast={() => null}>
+                    <tubeGeometry args={[curve, 16, (i < 2 ? 0.022 : 0.035) * thin, 6, false]} />
+                    <meshStandardMaterial color={tone} roughness={0.6} transparent opacity={opacity} depthWrite={false} />
+                </mesh>
+            ))}
+            {/* Таз: крылья подвздошных костей чашей вокруг кишечника */}
+            <mesh position={[0, 0.42, -0.02]} rotation={[Math.PI / 2 - 0.35, 0, 0]} scale={[1, 0.62, 1]} raycast={() => null}>
+                <torusGeometry args={[0.46, 0.034 * thin, 8, 40, Math.PI * 1.6]} />
+                <meshStandardMaterial color={tone} roughness={0.6} transparent opacity={opacity * 0.5} depthWrite={false} />
+            </mesh>
+        </group>
+    );
+}
 
 /**
  * Сосуды. Прежние кривые были написаны под старую модель и пересчитывались
@@ -463,10 +586,10 @@ function Circulation({ reversed }) {
     ]), []);
     // Венозный возврат: от таза к сердцу, чуть правее и спереди от аорты
     const venous = useMemo(() => makeCurve([
-        [0.10, 0.20, 0.02],
-        [0.12, 0.80, 0.02],
-        [0.10, 1.40, 0.02],
-        [0.04, 1.78, 0.06],
+        [-0.10, 0.20, 0.02],
+        [-0.12, 0.80, 0.02],
+        [-0.10, 1.40, 0.02],
+        [-0.02, 1.78, 0.06],
     ]), []);
 
     const vesselColor = reversed ? '#773333' : '#ff243f';
@@ -602,19 +725,46 @@ function AnatomyFigure({ reversedFactors, mode }) {
 
     useEffect(() => () => disposeFigure(figure), [figure]);
 
-    const skinMaterial = useMemo(() => new THREE.MeshStandardMaterial({
-        color: new THREE.Color(mode === 'emotions'
-            ? (stressReversed ? '#d98aa6' : '#f0b6cd')
-            : (stressReversed ? '#d9a186' : '#e8c3ab')),
-        emissive: new THREE.Color(mode === 'emotions' ? '#5a2038' : '#553220'),
-        emissiveIntensity: 0.1,
-        roughness: 0.34,
-        metalness: 0,
-        transparent: true,
-        opacity: mode === 'emotions' ? 0.42 : 0.36,
-        depthWrite: false,
-        side: THREE.FrontSide,
-    }), [mode, stressReversed]);
+    /*
+     * Кожа смешивается минимумом, а не альфой. Фигура собрана из частей, и там,
+     * где туловище заходит в бёдра, а плечо в торс, полупрозрачные оболочки
+     * накладывались дважды: на тазу темнела полоса, читавшаяся как бельё.
+     * Минимум от двух одинаковых слоёв равен одному слою — стыков не видно.
+     * Цвет заранее смешивается с фоном слоя, поэтому поверх фона результат
+     * совпадает с обычной прозрачностью.
+     */
+    const skinMaterial = useMemo(() => {
+        const alpha = mode === 'emotions' ? 0.42 : 0.36;
+        const material = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(mode === 'emotions'
+                ? (stressReversed ? '#d98aa6' : '#f0b6cd')
+                : (stressReversed ? '#d9a186' : '#e8c3ab')),
+            emissive: new THREE.Color(mode === 'emotions' ? '#5a2038' : '#553220'),
+            emissiveIntensity: 0.1,
+            roughness: 0.34,
+            metalness: 0,
+            transparent: true,
+            depthWrite: false,
+            side: THREE.FrontSide,
+            blending: THREE.CustomBlending,
+            blendEquation: THREE.MinEquation,
+            blendSrc: THREE.OneFactor,
+            blendDst: THREE.OneFactor,
+        });
+        const background = new THREE.Color('#e9edf4');
+        material.onBeforeCompile = (shader) => {
+            shader.uniforms.uBackdrop = { value: background };
+            shader.uniforms.uSkinAlpha = { value: alpha };
+            shader.fragmentShader = shader.fragmentShader
+                .replace('#include <common>', '#include <common>\nuniform vec3 uBackdrop;\nuniform float uSkinAlpha;')
+                .replace(
+                    '#include <dithering_fragment>',
+                    '#include <dithering_fragment>\n\tgl_FragColor = vec4(mix(uBackdrop, gl_FragColor.rgb, uSkinAlpha), 1.0);',
+                );
+        };
+        material.customProgramCacheKey = () => `skin-min-${alpha}`;
+        return material;
+    }, [mode, stressReversed]);
 
     // Контурная оболочка: полупрозрачное тело на светлом фоне теряет силуэт,
     // френель по краю возвращает объём, не закрывая органы внутри
@@ -823,6 +973,8 @@ function OrganLayer({ reversedFactors }) {
                 общими множителями раздувал их до размера туловища и уводил
                 мозг выше макушки */}
             <Spine reversed={!!reversedFactors.posture} />
+            <Skeleton reversed={!!reversedFactors.skeleton} />
+            <Kidneys reversed={!!reversedFactors.filtration} />
             <Circulation reversed={circulationReversed} />
             <Heart reversed={circulationReversed} />
             <Lungs reversed={breathingReversed} />
@@ -832,9 +984,15 @@ function OrganLayer({ reversedFactors }) {
             {/* Подписи вынесены из самих органов: подпись внутри органа
                 уезжала вместе с ним — «ЛЁГКИЕ» оказывались над кишечником */}
             <Label position={[0, 3.62, 0.5]} region="head">МОЗГ</Label>
-            <Label position={[0.62, 2.28, 0.5]} region="chest">СЕРДЦЕ</Label>
-            <Label position={[-0.72, 2.12, 0.5]} region="chest">ЛЁГКИЕ</Label>
-            <Label position={[0, 0.5, 0.62]} region="abdomen">ПИЩЕВАРЕНИЕ</Label>
+            <Label position={[0.3, 1.6, 0.5]} region="chest">СЕРДЦЕ</Label>
+            <Label position={[-0.58, 2.46, 0.4]} region="chest">ЛЁГКИЕ</Label>
+            <Label position={[-0.34, 1.08, 0.5]} region="abdomen">ПЕЧЕНЬ</Label>
+            <Label position={[0.46, 1.12, 0.5]} region="abdomen">ЖЕЛУДОК</Label>
+            <Label position={[0, 0.5, 0.62]} region="abdomen">КИШЕЧНИК</Label>
+            <Label position={[0.6, 0.7, -0.1]} region="abdomen" size={0.09}>ПОЧКИ</Label>
+            <Label position={[0, 0.02, 0.45]} region="abdomen" size={0.09}>МОЧЕВОЙ ПУЗЫРЬ</Label>
+            <Label position={[0.82, 1.5, 0.4]} region="chest" size={0.09}>РЁБРА</Label>
+            <Label position={[0.64, -0.7, 0.4]} region="legs" size={0.12}>БЕДРЕННАЯ КОСТЬ</Label>
         </group>
     );
 }
@@ -849,12 +1007,14 @@ function EmotionLayer({ reversedFactors }) {
     return (
         <group scale={1.2} position={[0, 0.45, 0]}>
             <EmotionalAura reversed={emotionsReversed} />
+            {/* Кольцо психики. Сон, боль и гормоны живут в областях тела —
+                здесь только то, что не привязано к органу */}
             <FactorOrb position={[1.85, 1.85, 1.05]} factorId="emotion" label="ЭМОЦИЯ" reverseLabel="ОНЕМЕНИЕ" color="#d59a10" reverseColor="#8a8a8a" />
             <FactorOrb position={[-1.85, 1.85, 1.05]} factorId="stress" label="СТРЕСС" reverseLabel="ВОССТАНОВЛЕНИЕ" color="#d92d1c" reverseColor="#149c6c" />
             <FactorOrb position={[1.9, 0.25, 1.05]} factorId="empathy" label="ЭМПАТИЯ" reverseLabel="ОТЧУЖДЕНИЕ" color="#d9539f" reverseColor="#6680aa" />
-            <FactorOrb position={[-1.9, 0.25, 1.05]} factorId="pain" label="БОЛЬ" reverseLabel="АНЕСТЕЗИЯ" color="#d94f16" reverseColor="#7890aa" />
-            <FactorOrb position={[1.85, -1.2, 1.05]} factorId="hormones" label="ГОРМОНЫ" reverseLabel="СБОЙ" color="#8a9c1e" reverseColor="#aa7766" />
-            <FactorOrb position={[-1.85, -1.2, 1.05]} factorId="sleep" label="СОН" reverseLabel="БЕССОННИЦА" color="#4a63c9" reverseColor="#d1831a" />
+            <FactorOrb position={[-1.9, 0.25, 1.05]} factorId="fear" label="СТРАХ" reverseLabel="БЕЗРАССУДСТВО" color="#6a4bc4" reverseColor="#d1831a" />
+            <FactorOrb position={[1.85, -1.2, 1.05]} factorId="motivation" label="МОТИВАЦИЯ" reverseLabel="АПАТИЯ" color="#1f97c9" reverseColor="#8a8a9a" />
+            <FactorOrb position={[-1.85, -1.2, 1.05]} factorId="attachment" label="ПРИВЯЗАННОСТЬ" reverseLabel="ОДИНОЧЕСТВО" color="#c2379b" reverseColor="#7890aa" />
             <FactorOrb position={[0, 3.15, 1.1]} factorId="identity" label="Я" reverseLabel="РАЗРЫВ Я" color="#3a4256" reverseColor="#8a8aa8" size={1} />
         </group>
     );

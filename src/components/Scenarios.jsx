@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
 import { FACTORS_DATA } from '../data/factors';
-import { ALL_LOCATIONS } from '../data/locations';
+import { placeOfFactor } from '../data/locations';
 import { SCENARIOS, SCENARIO_KINDS, scenarioById } from '../data/scenarios';
 
-const placeOf = (factorId) => ALL_LOCATIONS.find((l) => l.factors.includes(factorId))?.title ?? null;
+const placeOf = (factorId) => placeOfFactor(factorId)?.title ?? null;
 
 /**
  * Окно сложившегося мира. Появляется поверх всего, когда перевёрнутые факторы

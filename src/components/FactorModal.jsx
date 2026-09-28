@@ -1,7 +1,7 @@
 import React from 'react';
 import { useStore } from '../store';
 import { FACTORS_DATA } from '../data/factors';
-import { ALL_LOCATIONS } from '../data/locations';
+import { placeOfFactor } from '../data/locations';
 import { SCENARIOS } from '../data/scenarios';
 
 /**
@@ -24,7 +24,7 @@ export default function FactorModal() {
     const factor = activeFactorId ? FACTORS_DATA[activeFactorId] : null;
     if (!factor || blocked) return null;
 
-    const place = ALL_LOCATIONS.find((l) => l.factors.includes(activeFactorId));
+    const place = placeOfFactor(activeFactorId);
     const related = SCENARIOS.filter((s) => s.factors.includes(activeFactorId));
     const found = related.filter((s) => discovered[s.id]);
     const accent = isReversed ? 'text-cyan-300' : 'text-fuchsia-300';
@@ -44,7 +44,7 @@ export default function FactorModal() {
 
                 <div className="relative flex items-center justify-between gap-3">
                     <p className="text-[10px] uppercase tracking-[0.35em] text-white/40">
-                        {place ? `${place.title} · ${place.place}` : 'Фактор реальности'}
+                        {place ? [place.title, place.place].filter(Boolean).join(' · ') : 'Фактор реальности'}
                     </p>
                     <button
                         onClick={clearFactor}

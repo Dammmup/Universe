@@ -1,36 +1,29 @@
 import { create } from 'zustand';
 import { newlyCompleted } from './data/scenarios';
+import { MAX_STAGE, STAGE, isEarthStage, isMapStage } from './lib/stages';
 
-// Этапы (масштабы):
-// 0: Сингулярность (Big Bang)
-// 1: Космос (Макро-уровень)
-// 2: Природа и Планета (Мезо-уровень 1)
-// 3: Общество и Цивилизация (Мезо-уровень 2)
-// 4: Тело, эмоции и личность (Антропо-уровень)
-// 5: Клетка и сознание (Микро-уровень)
-// 6: Итог пути (Финал)
-//
-// Человек стоит перед клеткой: масштаб убывает монотонно. Прежний порядок
-// проваливал зрителя в микромир и возвращал обратно к телу.
+// Слои пути и их порядок — в lib/stages.js. Мезо-уровень — три слоя одной
+// планеты: общие процессы Земли, природные локации и города.
 
-const MAX_STAGE = 6;
+const { COSMOS, PLANET, SOCIETY, HUMAN, CELL, FINALE } = STAGE;
 
 /**
  * Какой вуалью накрыт переход между слоями. Смена сцены — это подмена всего
- * содержимого кадра: без накрытия она читается как склейка. Пары 2↔3 здесь нет
- * намеренно — там сцена одна и та же, планета доворачивается в кадре.
+ * содержимого кадра: без накрытия она читается как склейка. Переходов между
+ * тремя слоями планеты здесь нет намеренно — сцена одна и та же, планета
+ * доворачивается в кадре.
  */
 const VEIL_KIND = {
-    '0>1': 'bang',    // ударная волна взрыва выбеливает кадр
-    '1>0': 'collapse',
-    '1>2': 'dive',    // вход в атмосферу
-    '2>1': 'ascend',
-    '3>4': 'flesh',   // с планеты в тело: тьма переходит в свет
-    '4>3': 'ascend',
-    '4>5': 'matter',  // из тела в клетку: проваливание в вещество
-    '5>4': 'flesh',   // обратно в тело — снова к свету
-    '5>6': 'origin',  // клетка растворяется, кадр возвращается к началу
-    '6>5': 'collapse',
+    [`${STAGE.SINGULARITY}>${COSMOS}`]: 'bang',    // ударная волна взрыва выбеливает кадр
+    [`${COSMOS}>${STAGE.SINGULARITY}`]: 'collapse',
+    [`${COSMOS}>${PLANET}`]: 'dive',               // вход в атмосферу
+    [`${PLANET}>${COSMOS}`]: 'ascend',
+    [`${SOCIETY}>${HUMAN}`]: 'flesh',              // с планеты в тело: тьма переходит в свет
+    [`${HUMAN}>${SOCIETY}`]: 'ascend',
+    [`${HUMAN}>${CELL}`]: 'matter',                // из тела в клетку: проваливание в вещество
+    [`${CELL}>${HUMAN}`]: 'flesh',                 // обратно в тело — снова к свету
+    [`${CELL}>${FINALE}`]: 'origin',               // клетка растворяется, кадр возвращается к началу
+    [`${FINALE}>${CELL}`]: 'collapse',
 };
 
 export const veilKindFor = (from, to) => VEIL_KIND[`${from}>${to}`] ?? 'dive';
@@ -46,7 +39,7 @@ const enterStage = (stage, state) => ({
     location: null,
     approachingEarth: false,
     // На Земле сначала киношный кадр, облёт включается, когда камера доехала
-    freeLook: stage !== 2 && stage !== 3,
+    freeLook: !isEarthStage(stage),
 });
 
 export const useStore = create((set, get) => ({
@@ -95,7 +88,7 @@ export const useStore = create((set, get) => ({
     enterLocation: (id) => {
         const state = get();
         if (state.shift || state.approachingEarth || state.location === id) return;
-        if (state.stage !== 2 && state.stage !== 3) return;
+        if (!isMapStage(state.stage)) return;
         get().beginShift('dive', { type: 'location', id });
     },
     leaveLocation: () => {
@@ -156,9 +149,9 @@ export const useStore = create((set, get) => ({
 
         // Космос → Земля: сначала живой пролёт сквозь систему, вуаль включится
         // в конце наезда, когда планета уже заполнила кадр.
-        if (from === 1) {
+        if (from === COSMOS) {
             set({
-                stage: 2,
+                stage: PLANET,
                 isExploded: true,
                 hasPlayedBang: true,
                 activeFactorId: null,
@@ -170,14 +163,14 @@ export const useStore = create((set, get) => ({
 
         // Из диорамы слой меняется под вуалью: камера стоит у земли, и
         // доворот планеты здесь показать не на чем
-        if (state.location && (from === 2 || from === 3)) {
-            get().beginShift(from === 2 ? 'ascend' : veilKindFor(from, to), { type: 'stage', to });
+        if (state.location) {
+            get().beginShift(isEarthStage(to) ? 'ascend' : veilKindFor(from, to), { type: 'stage', to });
             return;
         }
 
-        // Природа → город: сцена та же, планета сама доворачивается к Азии
-        if (from === 2) {
-            set((s) => ({ ...enterStage(3, s) }));
+        // Между слоями планеты сцена та же: глобус сам доворачивается
+        if (isEarthStage(from) && isEarthStage(to)) {
+            set((s) => ({ ...enterStage(to, s) }));
             return;
         }
 
@@ -192,7 +185,7 @@ export const useStore = create((set, get) => ({
         const to = from - 1;
 
         if (state.approachingEarth) {
-            set((s) => ({ ...enterStage(1, s) }));
+            set((s) => ({ ...enterStage(COSMOS, s) }));
             return;
         }
 
@@ -202,8 +195,8 @@ export const useStore = create((set, get) => ({
             return;
         }
 
-        if (from === 3) {
-            set((s) => ({ ...enterStage(2, s) }));
+        if (isEarthStage(from) && isEarthStage(to)) {
+            set((s) => ({ ...enterStage(to, s) }));
             return;
         }
 
@@ -215,7 +208,7 @@ export const useStore = create((set, get) => ({
             if (state.shift) return state;
             shiftSeq += 1;
             return {
-                shift: { kind: 'bang', commit: { type: 'stage', to: 1 }, token: shiftSeq },
+                shift: { kind: 'bang', commit: { type: 'stage', to: COSMOS }, token: shiftSeq },
                 activeFactorId: null,
             };
         }
