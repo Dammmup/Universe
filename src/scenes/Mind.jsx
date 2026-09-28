@@ -7,6 +7,7 @@ import { FACTORS_DATA } from '../data/factors';
 import { withEchoes } from '../data/consequences';
 import { FACTOR_NEURONS } from '../data/mind';
 import { seededRandom } from '../lib/geo';
+import { circleSprite } from '../lib/sprites';
 
 /**
  * «Разум» — сеть нейронов внутри головы.
@@ -24,6 +25,9 @@ import { seededRandom } from '../lib/geo';
 
 const NEURON_COUNT = 64;
 const MAX_IMPULSES = 520;
+/** Сколько отрезков в изогнутом аксоне. */
+const EDGE_SEG = 7;
+const MAX_SPARKS = 240;
 const damp = THREE.MathUtils.damp;
 
 const FACTOR_IDS = FACTOR_NEURONS.map((f) => f.id);
@@ -148,7 +152,61 @@ function buildNetwork() {
         neighbors[b].push({ to: a, e });
     });
     const lengths = edges.map(([a, b]) => nodes[a].base.distanceTo(nodes[b].base));
-    return { nodes, edges, neighbors, lengths };
+
+    // Аксоны не прямые: у каждого свой изгиб, как у настоящего отростка
+    const bends = edges.map(() => new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5).multiplyScalar(0.9));
+    const edgeIndex = new Map();
+    edges.forEach(([a, b], e) => {
+        edgeIndex.set(`${a}-${b}`, { e, dir: 1 });
+        edgeIndex.set(`${b}-${a}`, { e, dir: -1 });
+    });
+
+    // Дендриты: дерево отростков вокруг тела нейрона — ствол, развилка и
+    // веточки. Смещения хранятся относительно тела и едут вместе с ним.
+    const unit = () => new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5).normalize();
+    const dendrites = [];
+    nodes.forEach((n, i) => {
+        const branches = n.factor ? 8 : 4 + Math.floor(rand() * 3);
+        const soma = n.factor ? 0.2 : 0.11;
+        for (let k = 0; k < branches; k += 1) {
+            const dir = unit();
+            const len = (n.factor ? 0.85 : 0.55) * (0.6 + rand() * 0.6);
+            const p0 = dir.clone().multiplyScalar(soma);
+            const mid = dir.clone().multiplyScalar(len * 0.55).add(unit().multiplyScalar(len * 0.12));
+            const end = dir.clone().multiplyScalar(len).add(unit().multiplyScalar(len * 0.18));
+            dendrites.push({ node: i, a: p0, b: mid, w: 1 });
+            dendrites.push({ node: i, a: mid, b: end, w: 0.8 });
+            for (let s = 0; s < 2; s += 1) {
+                const d2 = dir.clone().add(unit().multiplyScalar(0.9)).normalize();
+                const tip = mid.clone().addScaledVector(d2, len * (0.3 + rand() * 0.25));
+                dendrites.push({ node: i, a: mid, b: tip, w: 0.6 });
+                const d3 = d2.clone().add(unit().multiplyScalar(0.8)).normalize();
+                dendrites.push({ node: i, a: tip, b: tip.clone().addScaledVector(d3, len * 0.18), w: 0.4 });
+            }
+            const d4 = dir.clone().add(unit().multiplyScalar(0.7)).normalize();
+            dendrites.push({ node: i, a: end, b: end.clone().addScaledVector(d4, len * 0.22), w: 0.5 });
+        }
+    });
+
+    return { nodes, edges, neighbors, lengths, bends, edgeIndex, dendrites };
+}
+
+/** Точка на изогнутом аксоне ребра e при параметре u (0 — начало ребра). */
+function axonPoint(net, pos, e, u, out) {
+    const [a, b] = net.edges[e];
+    const pa = pos[a];
+    const pb = pos[b];
+    const len = pa.distanceTo(pb);
+    const bend = net.bends[e];
+    const cx = (pa.x + pb.x) / 2 + bend.x * len * 0.35;
+    const cy = (pa.y + pb.y) / 2 + bend.y * len * 0.35;
+    const cz = (pa.z + pb.z) / 2 + bend.z * len * 0.35;
+    const v = 1 - u;
+    return out.set(
+        v * v * pa.x + 2 * v * u * cx + u * u * pb.x,
+        v * v * pa.y + 2 * v * u * cy + u * u * pb.y,
+        v * v * pa.z + 2 * v * u * cz + u * u * pb.z,
+    );
 }
 
 /** Путь в ширину от source к target по графу. */
@@ -228,6 +286,8 @@ export default function Mind() {
         tmp: new THREE.Object3D(),
         tmpColor: new THREE.Color(),
         shake: 0,
+        axon: new THREE.Vector3(),
+        sparks: Array.from({ length: MAX_SPARKS }, () => ({ life: 0, p: new THREE.Vector3(), v: new THREE.Vector3() })),
         params: { drift: 0, sag: 0, contract: 0, expand: 0, split: 0, isolate: 0, dim: 0, breathe: 0, fade: 0 },
     }), [net]);
 
@@ -241,10 +301,31 @@ export default function Mind() {
 
     const edgeGeometry = useMemo(() => {
         const g = new THREE.BufferGeometry();
-        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(net.edges.length * 6), 3));
-        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(net.edges.length * 6), 3));
+        const n = net.edges.length * EDGE_SEG * 6;
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n), 3));
+        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n), 3));
         return g;
     }, [net]);
+    const dendriteGeometry = useMemo(() => {
+        const g = new THREE.BufferGeometry();
+        const n = net.dendrites.length * 6;
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n), 3));
+        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n), 3));
+        return g;
+    }, [net]);
+    const haloGeometry = useMemo(() => {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(NEURON_COUNT * 3), 3));
+        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(NEURON_COUNT * 3), 3));
+        return g;
+    }, []);
+    const sparkGeometry = useMemo(() => {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_SPARKS * 3), 3));
+        g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX_SPARKS * 3), 3));
+        return g;
+    }, []);
+    const tex = useMemo(() => circleSprite(), []);
     const grownGeometry = useMemo(() => {
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(24 * 6), 3));
@@ -252,9 +333,8 @@ export default function Mind() {
         return g;
     }, []);
     useEffect(() => () => {
-        edgeGeometry.dispose();
-        grownGeometry.dispose();
-    }, [edgeGeometry, grownGeometry]);
+        [edgeGeometry, grownGeometry, dendriteGeometry, haloGeometry, sparkGeometry].forEach((g) => g.dispose());
+    }, [edgeGeometry, grownGeometry, dendriteGeometry, haloGeometry, sparkGeometry]);
 
     useFrame((state, delta) => {
         const dt = Math.min(delta, 0.05);
@@ -304,6 +384,9 @@ export default function Mind() {
             imp.b = b;
             imp.t = 0;
             imp.wave = wave;
+            const link = net.edgeIndex.get(`${a}-${b}`);
+            imp.e = link ? link.e : -1;
+            imp.dir = link ? link.dir : 1;
             imp.dur = Math.max(0.15, sim.pos[a].distanceTo(sim.pos[b]) / (2.2 * (m.speed ?? 1)));
             imp.color.copy(color ?? sim.color);
             sim.glow[a] = Math.max(sim.glow[a], 0.8);
@@ -462,6 +545,18 @@ export default function Mind() {
                 imp.live = false;
                 sim.bump[imp.b] = Math.min(1.5, sim.bump[imp.b] + (m.bump ?? 0.8));
                 sim.glow[imp.b] = Math.max(sim.glow[imp.b], 1);
+                // Радость: принявший нейрон рассыпает искры во все стороны
+                if (m.sparkle) {
+                    let born = 0;
+                    for (let k = 0; k < MAX_SPARKS && born < 6; k += 1) {
+                        const sp = sim.sparks[k];
+                        if (sp.life > 0) continue;
+                        sp.life = 1;
+                        sp.p.copy(sim.pos[imp.b]);
+                        sp.v.set(Math.random() - 0.5, Math.random() - 0.3, Math.random() - 0.5).normalize().multiplyScalar(1.2 + Math.random() * 1.6);
+                        born += 1;
+                    }
+                }
                 // Волна каскада идёт дальше — от принявшего к его соседям
                 if (m.pattern === 'cascade' && imp.wave) {
                     const seen = sim.visited.get(imp.wave);
@@ -475,7 +570,8 @@ export default function Mind() {
                 return;
             }
             if (!impMesh || n >= MAX_IMPULSES) return;
-            tmp.position.lerpVectors(sim.pos[imp.a], sim.pos[imp.b], imp.t);
+            if (imp.e >= 0) axonPoint(net, sim.pos, imp.e, imp.dir > 0 ? imp.t : 1 - imp.t, tmp.position);
+            else tmp.position.lerpVectors(sim.pos[imp.a], sim.pos[imp.b], imp.t);
             tmp.scale.setScalar(1);
             tmp.updateMatrix();
             impMesh.setMatrixAt(n, tmp.matrix);
@@ -498,7 +594,7 @@ export default function Mind() {
             const isFactor = !!node.factor;
             const faded = P.fade * (i % 3 === 0 ? 1 : 0);
             tmp.position.copy(sim.pos[i]);
-            const s = (isFactor ? 0.22 : 0.12) * (1 + sim.bump[i] * 0.35 + (m.pulse ? 0.1 * Math.sin(t * 6) : 0)) * (1 - faded * 0.6);
+            const s = (isFactor ? 0.17 : 0.085) * (1 + sim.bump[i] * 0.35 + (m.pulse ? 0.1 * Math.sin(t * 6) : 0)) * (1 - faded * 0.6);
             tmp.scale.setScalar(s);
             tmp.updateMatrix();
             soma?.setMatrixAt(i, tmp.matrix);
@@ -522,19 +618,77 @@ export default function Mind() {
         // ─── Дендриты: светятся у активных нейронов ──────────────────────
         const ep = edgeGeometry.attributes.position.array;
         const ec = edgeGeometry.attributes.color.array;
+        const q = sim.axon;
+        let o = 0;
         net.edges.forEach(([a, b], e) => {
-            const pa = sim.pos[a];
-            const pb = sim.pos[b];
-            ep.set([pa.x, pa.y, pa.z, pb.x, pb.y, pb.z], e * 6);
             let k = 0.1 + Math.max(sim.glow[a], sim.glow[b]) * 0.35 + breathe * 0.2;
             k *= 1 - P.dim * 0.6;
             if (P.split > 0.3 && Math.sign(net.nodes[a].base.x) !== Math.sign(net.nodes[b].base.x)) k *= 1 - P.split;
             if (P.isolate > 0.3 && (net.nodes[a].factor === 'attachment' || net.nodes[b].factor === 'attachment')) k *= 1 - P.isolate;
-            c.copy(sim.color).multiplyScalar(k);
-            ec.set([c.r, c.g, c.b, c.r, c.g, c.b], e * 6);
+            for (let sgm = 0; sgm < EDGE_SEG; sgm += 1) {
+                axonPoint(net, sim.pos, e, sgm / EDGE_SEG, q);
+                ep[o] = q.x; ep[o + 1] = q.y; ep[o + 2] = q.z;
+                axonPoint(net, sim.pos, e, (sgm + 1) / EDGE_SEG, q);
+                ep[o + 3] = q.x; ep[o + 4] = q.y; ep[o + 5] = q.z;
+                // К середине аксон тускнеет: ярко у тел нейронов, где сигнал рождается
+                const fall = 0.65 + 0.35 * Math.abs(sgm / EDGE_SEG - 0.5) * 2;
+                c.copy(sim.color).multiplyScalar(k * fall);
+                ec[o] = c.r; ec[o + 1] = c.g; ec[o + 2] = c.b;
+                ec[o + 3] = c.r; ec[o + 4] = c.g; ec[o + 5] = c.b;
+                o += 6;
+            }
         });
         edgeGeometry.attributes.position.needsUpdate = true;
         edgeGeometry.attributes.color.needsUpdate = true;
+
+        // Дендриты: ветвятся вокруг тела, вздрагивают вместе с ним и светятся,
+        // когда нейрон принимает сигнал
+        const dp = dendriteGeometry.attributes.position.array;
+        const dc = dendriteGeometry.attributes.color.array;
+        net.dendrites.forEach((d, j) => {
+            const base = sim.pos[d.node];
+            const grow = 1 + sim.bump[d.node] * 0.25;
+            const sway = Math.sin(t * 1.2 + d.node + j * 0.3) * 0.03;
+            const k2 = j * 6;
+            dp[k2] = base.x + d.a.x * grow + sway; dp[k2 + 1] = base.y + d.a.y * grow; dp[k2 + 2] = base.z + d.a.z * grow;
+            dp[k2 + 3] = base.x + d.b.x * grow + sway * 2; dp[k2 + 4] = base.y + d.b.y * grow + sway; dp[k2 + 5] = base.z + d.b.z * grow;
+            const faded = P.fade * (d.node % 3 === 0 ? 1 : 0);
+            const lum = (0.16 + sim.glow[d.node] * 0.55 + breathe * 0.2) * d.w * (1 - P.dim * 0.5) * (1 - faded * 0.8);
+            c.copy(sim.color).multiplyScalar(lum);
+            dc[k2] = c.r; dc[k2 + 1] = c.g; dc[k2 + 2] = c.b;
+            dc[k2 + 3] = c.r * 0.6; dc[k2 + 4] = c.g * 0.6; dc[k2 + 5] = c.b * 0.6;
+        });
+        dendriteGeometry.attributes.position.needsUpdate = true;
+        dendriteGeometry.attributes.color.needsUpdate = true;
+
+        // Ореол тела нейрона — свет, а не шарик
+        const hp = haloGeometry.attributes.position.array;
+        const hc = haloGeometry.attributes.color.array;
+        net.nodes.forEach((node, i) => {
+            hp[i * 3] = sim.pos[i].x; hp[i * 3 + 1] = sim.pos[i].y; hp[i * 3 + 2] = sim.pos[i].z;
+            const lum = (node.factor ? 0.45 : 0.22) + sim.glow[i] * 0.7 + breathe * 0.3 - P.dim * 0.15;
+            c.copy(sim.color).multiplyScalar(Math.max(0.05, lum));
+            hc[i * 3] = c.r; hc[i * 3 + 1] = c.g; hc[i * 3 + 2] = c.b;
+        });
+        haloGeometry.attributes.position.needsUpdate = true;
+        haloGeometry.attributes.color.needsUpdate = true;
+
+        // Искры радости: разлетаются, тормозят и гаснут
+        const sp2 = sparkGeometry.attributes.position.array;
+        const sc2 = sparkGeometry.attributes.color.array;
+        sim.sparks.forEach((spk, k3) => {
+            if (spk.life > 0) {
+                spk.life = Math.max(0, spk.life - dt * 0.9);
+                spk.p.addScaledVector(spk.v, dt);
+                spk.v.multiplyScalar(1 - dt * 1.5);
+                spk.v.y -= dt * 0.6;
+            }
+            sp2[k3 * 3] = spk.p.x; sp2[k3 * 3 + 1] = spk.p.y; sp2[k3 * 3 + 2] = spk.p.z;
+            const l = spk.life;
+            sc2[k3 * 3] = 1.0 * l; sc2[k3 * 3 + 1] = 0.85 * l; sc2[k3 * 3 + 2] = 0.35 * l;
+        });
+        sparkGeometry.attributes.position.needsUpdate = true;
+        sparkGeometry.attributes.color.needsUpdate = true;
 
         const gp = grownGeometry.attributes.position.array;
         sim.grown.forEach((g, k) => {
@@ -566,12 +720,21 @@ export default function Mind() {
             </mesh>
             <group ref={groupRef}>
                 <instancedMesh ref={somaRef} args={[undefined, undefined, NEURON_COUNT]} frustumCulled={false} raycast={() => null}>
-                    <sphereGeometry args={[1, 20, 14]} />
+                    <icosahedronGeometry args={[1, 2]} />
                     <meshBasicMaterial toneMapped={false} />
                 </instancedMesh>
                 <lineSegments geometry={edgeGeometry} raycast={() => null}>
                     <lineBasicMaterial vertexColors transparent opacity={0.9} toneMapped={false} blending={THREE.AdditiveBlending} depthWrite={false} />
                 </lineSegments>
+                <lineSegments geometry={dendriteGeometry} raycast={() => null}>
+                    <lineBasicMaterial vertexColors transparent opacity={0.85} toneMapped={false} blending={THREE.AdditiveBlending} depthWrite={false} />
+                </lineSegments>
+                <points geometry={haloGeometry} raycast={() => null}>
+                    <pointsMaterial vertexColors size={1.25} map={tex} alphaMap={tex} transparent depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+                </points>
+                <points geometry={sparkGeometry} raycast={() => null}>
+                    <pointsMaterial vertexColors size={0.16} map={tex} alphaMap={tex} transparent depthWrite={false} toneMapped={false} blending={THREE.AdditiveBlending} />
+                </points>
                 <lineSegments geometry={grownGeometry} raycast={() => null}>
                     <lineBasicMaterial color="#8fffb8" transparent opacity={0.8} toneMapped={false} blending={THREE.AdditiveBlending} depthWrite={false} />
                 </lineSegments>

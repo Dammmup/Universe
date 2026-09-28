@@ -53,15 +53,15 @@ const FINALE_STAGE = STAGE.FINALE;
  * контекста WebGL: без восстановления сцена оставалась бы чёрным экраном.
  */
 function RendererGuard() {
-    const { gl, scene, camera, invalidate } = useThree();
+    const { gl, scene, camera, invalidate, get } = useThree();
 
     useEffect(() => {
         // В разработке отдаём рендерер наружу: так видно draw calls, число
         // треугольников и объём текстур без ручного инструментирования сцены.
         if (import.meta.env.DEV) {
-            window.realityRenderer = { gl, scene, camera };
+            window.realityRenderer = { gl, scene, camera, get controls() { return get().controls; } };
         }
-    }, [gl, scene, camera]);
+    }, [gl, scene, camera, get]);
 
     useEffect(() => {
         const canvas = gl.domElement;

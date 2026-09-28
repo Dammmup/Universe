@@ -59,6 +59,7 @@ const focus = async (id, reverse = false) => {
 await focus('anger');
 await focus('attention');
 await focus('identity', true);
+await focus('joy');
 
 console.log(JSON.stringify({ report, errors }, null, 2));
 await browser.close();
