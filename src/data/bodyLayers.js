@@ -13,7 +13,8 @@
  */
 
 /** Общий план: фигура целиком в кадре. */
-export const BODY_OVERVIEW = { pos: [0, -0.1, 13.4], look: [0, -0.2, 0], fov: 45 };
+// Кадр опущен: постамент статуи должен выглядывать над нижней панелью
+export const BODY_OVERVIEW = { pos: [0, -1.2, 14.6], look: [0, -1.3, 0], fov: 45 };
 
 export const BODY_LAYERS = [
     {

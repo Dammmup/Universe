@@ -30,6 +30,8 @@ const views = {
     'body-front': { pos: [0, 0.2, 9.5], target: [0, 0.1, 0] },
     'body-side': { pos: [9.5, 0.2, 0.5], target: [0, 0.1, 0] },
     'torso-34': { pos: [2.6, 2.0, 3.6], target: [0, 1.5, 0] },
+    hand: { pos: [2.6, -0.2, 1.4], target: [1.15, -0.3, 0.05] },
+    overview: { pos: [0, -1.2, 14.6], target: [0, -1.3, 0] },
 };
 
 for (const layer of [0, 1]) {

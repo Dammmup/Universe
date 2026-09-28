@@ -169,7 +169,7 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
                 // Линия рта с едва приподнятыми уголками
                 float mouthLine = smoothstep(0.007, 0.0, abs(P.y - 3.038 - 2.2 * P.x * P.x)) * smoothstep(0.085, 0.06, abs(P.x)) * step(0.3, P.z);
                 diffuseColor.rgb *= 1.0 - mouthLine * 0.2;
-                float hairline = 3.53 + 0.03 * cos(P.x * 9.0) - 0.13 * clamp((abs(P.x) - 0.14) / 0.14, 0.0, 1.0) * step(0.0, P.z) - 0.3 * clamp(-P.z / 0.35, 0.0, 1.0);
+                float hairline = 3.53 + 0.03 * cos(P.x * 9.0) - 0.13 * clamp((abs(P.x) - 0.14) / 0.14, 0.0, 1.0) - 0.3 * clamp(-P.z / 0.35, 0.0, 1.0);
                 float hair = smoothstep(hairline - 0.01, hairline + 0.03, P.y) * (1.0 - smoothstep(0.3, 0.34, abs(P.x)) * step(3.35, P.y) * 0.0);
                 float strand = 0.8 + 0.2 * bodyNoise(vec3(P.x * 90.0, P.y * 30.0, P.z * 90.0)) + 0.06 * sin(P.x * 260.0 + bodyNoise(P * 30.0) * 6.0);
                 // Волосы — не краска, а чуть более тёмная «лепка», как у манекена:
@@ -197,7 +197,7 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
             .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
                 // Рецепторы касания светятся точками на ладонях и пальцах
                 vec3 rc = floor(P * 90.0);
-                float receptor = step(0.975, bodyHash(rc)) * hands;
+                float receptor = step(0.975, bodyHash(rc)) * smoothstep(0.35, 0.2, length(fract(P * 90.0) - 0.5)) * hands;
                 float pulse = 0.5 + 0.5 * sin(uTime * 4.0 + bodyHash(rc + 3.0) * 30.0);
                 totalEmissiveRadiance += vec3(1.0, 0.55, 0.75) * receptor * pulse * uTouch * 0.9;
                 // Раскалённый камень: жар светится изнутри, пульсируя

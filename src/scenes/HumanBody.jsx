@@ -2,11 +2,9 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { useStore } from '../store';
 import { BODY_LAYERS } from '../data/bodyLayers';
 import { withEchoes } from '../data/consequences';
-import { buildFigure, disposeFigure } from '../lib/anatomy';
 import {
     GhostSkin,
     MuscleLayer,
@@ -629,17 +627,11 @@ export default function HumanBody() {
     const layer = BODY_LAYERS[bodyLayer];
     const groupRef = useRef();
     const organRef = useRef();
-    // Тело строится в фоне из поля расстояний (lib/bodySdf.js). Пока оно
-    // считается, стоит прежняя фигура из протяжек — пустого кадра не бывает
-    const fallback = useMemo(() => {
-        const figure = buildFigure();
-        const merged = mergeGeometries(Object.values(figure));
-        disposeFigure(figure);
-        return merged;
-    }, []);
-    useEffect(() => () => fallback.dispose(), [fallback]);
-    const skinGeometry = useBodyGeometry('skin') ?? fallback;
-    const muscleGeometry = useBodyGeometry('muscle') ?? fallback;
+    // Тело строится в фоне из поля расстояний (lib/bodySdf.js), обычно ещё
+    // до прихода на слой. Если не успело — постамент пару секунд пуст, а не
+    // занят прежней фигурой другого стиля
+    const skinGeometry = useBodyGeometry('skin');
+    const muscleGeometry = useBodyGeometry('muscle');
     const groups = useMuscleGroups(reversedFactors);
 
     const skinClip = useClipPlane(bodyLayer === 0);
@@ -672,9 +664,9 @@ export default function HumanBody() {
 
             {/* Постамент: фигура — скульптура, ей нужна опора */}
             <Pedestal />
-            <SkinLayer geometry={skinGeometry} present={bodyLayer === 0} rev={reversedFactors} clip={skinClip} groups={groups} />
-            <MuscleLayer geometry={muscleGeometry} rev={reversedFactors} clip={muscleClip} cover={skinClip} groups={groups} />
-            <GhostSkin geometry={skinGeometry} present={bodyLayer >= 2} />
+            {skinGeometry && <SkinLayer geometry={skinGeometry} present={bodyLayer === 0} rev={reversedFactors} clip={skinClip} groups={groups} />}
+            {muscleGeometry && <MuscleLayer geometry={muscleGeometry} rev={reversedFactors} clip={muscleClip} cover={skinClip} groups={groups} />}
+            {skinGeometry && <GhostSkin geometry={skinGeometry} present={bodyLayer >= 2} />}
 
             <group ref={organRef}>
                 <OrganLayer reversedFactors={reversedFactors} />
