@@ -132,7 +132,7 @@ export default function FinaleSummary() {
     };
 
     return (
-        <div className="animate-fade-in relative z-50 pointer-events-auto max-w-2xl mx-auto px-4 max-h-[62vh] overflow-y-auto">
+        <div className="animate-fade-in relative z-50 pointer-events-auto max-w-2xl mx-auto px-4 sm:px-6 py-4 sm:py-5 max-h-[62vh] overflow-y-auto rounded-2xl border border-white/10 bg-black/65 backdrop-blur-md">
             <p className="tracking-[0.45em] uppercase text-[10px] mb-3 text-white/35">Путь пройден · ваш мир</p>
             <p className="text-sm sm:text-base text-white/85 leading-relaxed mb-4">{verdict}</p>
 
