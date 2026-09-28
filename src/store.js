@@ -1,11 +1,13 @@
 import { create } from 'zustand';
 import { newlyCompleted } from './data/scenarios';
+import { echoesOf } from './data/consequences';
 import { MAX_STAGE, STAGE, isEarthStage, isMapStage } from './lib/stages';
+import { BODY_LAYER_COUNT } from './data/bodyLayers';
 
 // Слои пути и их порядок — в lib/stages.js. Мезо-уровень — три слоя одной
 // планеты: общие процессы Земли, природные локации и города.
 
-const { COSMOS, PLANET, SOCIETY, HUMAN, CELL, FINALE } = STAGE;
+const { COSMOS, PLANET, SOCIETY, HUMAN, MIND, CELL, FINALE } = STAGE;
 
 /**
  * Какой вуалью накрыт переход между слоями. Смена сцены — это подмена всего
@@ -20,8 +22,10 @@ const VEIL_KIND = {
     [`${PLANET}>${COSMOS}`]: 'ascend',
     [`${SOCIETY}>${HUMAN}`]: 'flesh',              // с планеты в тело: тьма переходит в свет
     [`${HUMAN}>${SOCIETY}`]: 'ascend',
-    [`${HUMAN}>${CELL}`]: 'matter',                // из тела в клетку: проваливание в вещество
-    [`${CELL}>${HUMAN}`]: 'flesh',                 // обратно в тело — снова к свету
+    [`${HUMAN}>${MIND}`]: 'mind',                  // сквозь мозг — внутрь сети нейронов
+    [`${MIND}>${HUMAN}`]: 'flesh',                 // из разума обратно к телу
+    [`${MIND}>${CELL}`]: 'matter',                 // из сети в одну клетку: проваливание в вещество
+    [`${CELL}>${MIND}`]: 'mind',
     [`${CELL}>${FINALE}`]: 'origin',               // клетка растворяется, кадр возвращается к началу
     [`${FINALE}>${CELL}`]: 'collapse',
 };
@@ -30,16 +34,19 @@ export const veilKindFor = (from, to) => VEIL_KIND[`${from}>${to}`] ?? 'dive';
 
 let shiftSeq = 0;
 
-const enterStage = (stage, state) => ({
+const enterStage = (stage, state, extra = {}) => ({
     stage,
     isExploded: stage > 0 || state.isExploded,
     hasPlayedBang: state.hasPlayedBang || stage > 0,
     activeFactorId: null,
-    bodyRegion: null,
     location: null,
+    // Тело открывается с кожи; возврат из разума — на нервы, самый глубокий подуровень
+    bodyLayer: 0,
+    mindFocus: null,
     approachingEarth: false,
     // На Земле сначала киношный кадр, облёт включается, когда камера доехала
     freeLook: !isEarthStage(stage),
+    ...extra,
 });
 
 export const useStore = create((set, get) => ({
@@ -59,21 +66,33 @@ export const useStore = create((set, get) => ({
             [state.activeFactorId]: !state.reversedFactors[state.activeFactorId]
         };
 
+        // Эхо: переворот отзывается на других слоях — зритель должен это
+        // увидеть, иначе последствие случится там, где его сейчас нет в кадре
+        const echoes = reversedFactors[state.activeFactorId]
+            ? echoesOf(state.activeFactorId).map((l) => ({ key: `${l.from}>${l.to}:${Date.now()}`, text: l.text }))
+            : [];
+        const echoState = echoes.length ? { echoes: [...state.echoes, ...echoes].slice(-4) } : {};
+
         // Сценарий срабатывает один раз за путь: иначе, щёлкая один фактор
         // туда-обратно, зритель получал бы одно и то же окно раз за разом
         const fresh = newlyCompleted(reversedFactors, state.discoveredScenarios);
-        if (!fresh.length) return { reversedFactors };
+        if (!fresh.length) return { reversedFactors, ...echoState };
 
         const discoveredScenarios = { ...state.discoveredScenarios };
         fresh.forEach((id) => { discoveredScenarios[id] = true; });
         return {
             reversedFactors,
+            ...echoState,
             discoveredScenarios,
             scenarioQueue: [...state.scenarioQueue, ...fresh],
         };
     }),
     isFactorReversed: (id) => Boolean(useStore.getState().reversedFactors[id]),
     clearFactor: () => set({ activeFactorId: null }),
+
+    // Уведомления об эхе на других слоях (data/consequences.js)
+    echoes: [],
+    dismissEcho: (key) => set((state) => ({ echoes: state.echoes.filter((e) => e.key !== key) })),
 
     // ─── Сценарии мира (data/scenarios.js) ───────────────────────────────────
     discoveredScenarios: {},
@@ -97,13 +116,24 @@ export const useStore = create((set, get) => ({
         get().beginShift('ascend', { type: 'location', id: null });
     },
 
-    // Выбранная область тела на антропо-уровне. null — фигура целиком в кадре,
-    // видны только названия областей; с выбором камера подъезжает к области и
-    // раскрывает её факторы.
-    bodyRegion: null,
-    setBodyRegion: (id) => set((state) => (
-        state.bodyRegion === id ? state : { bodyRegion: id, activeFactorId: null }
-    )),
+    // Подуровень тела на антропо-уровне: 0 — кожа … последний — нервы
+    // (data/bodyLayers.js). Меняется без вуали: слой снимается с фигуры.
+    bodyLayer: 0,
+    setBodyLayer: (index) => set((state) => {
+        const next = Math.max(0, Math.min(BODY_LAYER_COUNT - 1, index));
+        return next === state.bodyLayer ? state : { bodyLayer: next, activeFactorId: null };
+    }),
+    // Нейрон, в режиме которого сейчас работает сеть «Разума» (scenes/Mind.jsx).
+    // Живёт дольше карточки фактора: окно закрыто — режим остаётся.
+    mindFocus: null,
+    setMindFocus: (id) => set({ mindFocus: id }),
+
+    /** Клик по мозгу: сквозь него — в сеть нейронов. */
+    enterMind: () => {
+        const state = get();
+        if (state.shift || state.stage !== HUMAN) return;
+        get().beginShift(veilKindFor(HUMAN, MIND), { type: 'stage', to: MIND });
+    },
 
     approachingEarth: false,
     // false, пока режиссёрская камера ведёт кадр: иначе OrbitControls
@@ -134,7 +164,7 @@ export const useStore = create((set, get) => ({
         if (commit.type === 'location') {
             return { location: commit.id, activeFactorId: null, freeLook: false };
         }
-        return enterStage(commit.to, state);
+        return enterStage(commit.to, state, commit.extra);
     }),
 
     endShift: () => set({ shift: null }),
@@ -174,6 +204,12 @@ export const useStore = create((set, get) => ({
             return;
         }
 
+        // Тело листается вглубь: кожа → мышцы → органы → кости → нервы
+        if (from === HUMAN && state.bodyLayer < BODY_LAYER_COUNT - 1) {
+            set({ bodyLayer: state.bodyLayer + 1, activeFactorId: null });
+            return;
+        }
+
         get().beginShift(veilKindFor(from, to), { type: 'stage', to });
     },
 
@@ -200,7 +236,14 @@ export const useStore = create((set, get) => ({
             return;
         }
 
-        get().beginShift(veilKindFor(from, to), { type: 'stage', to });
+        if (from === HUMAN && state.bodyLayer > 0) {
+            set({ bodyLayer: state.bodyLayer - 1, activeFactorId: null });
+            return;
+        }
+
+        // Из разума возвращаемся к нервам — туда, откуда в него вошли
+        const extra = from === MIND ? { bodyLayer: BODY_LAYER_COUNT - 1 } : undefined;
+        get().beginShift(veilKindFor(from, to), { type: 'stage', to, extra });
     },
 
     triggerBang: () => set((state) => {
@@ -221,11 +264,12 @@ export const useStore = create((set, get) => ({
         isExploded: false,
         hasPlayedBang: false,
         activeFactorId: null,
-        bodyRegion: null,
+        bodyLayer: 0,
         location: null,
         reversedFactors: {},
         discoveredScenarios: {},
         scenarioQueue: [],
+        echoes: [],
         approachingEarth: false,
         freeLook: true,
         shift: null,

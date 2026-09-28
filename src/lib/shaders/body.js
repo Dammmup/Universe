@@ -1,0 +1,248 @@
+import * as THREE from 'three';
+
+/**
+ * Материалы подуровней тела. Оба — стандартные PBR-материалы с добавками в
+ * шейдере: освещение, тени и тонмаппинг остаются общими со сценой, а
+ * особенности ткани (волокна, чешуя, рана, ожог) считаются по координатам
+ * вершины в пространстве фигуры.
+ */
+
+export const MUSCLE_GROUP_COUNT = 11;
+
+/**
+ * Вершинная часть: у каждой вершины — мышца (группа, положение вдоль оси),
+ * её центр и ось (lib/bodySdf.js). uGroup[g] = (радиальный масштаб,
+ * масштаб вдоль оси, дрожь) — так бицепс набухает, бедро тянется, а икру
+ * сводит судорогой прямо в шейдере, без пересборки геометрии.
+ */
+const COMMON_VERTEX = /* glsl */ `
+attribute vec2 aMuscle;
+attribute vec3 aCenter;
+attribute vec3 aAxis;
+uniform vec3 uGroup[${11}];
+uniform float uTime;
+varying vec3 vBodyPos;
+varying vec2 vMuscle;
+varying vec3 vCenter;
+varying vec3 vAxis;
+`;
+
+function patchVertex(shader) {
+    shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>\n${COMMON_VERTEX}`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+            int g = int(aMuscle.x + 0.5);
+            if (g > 0) {
+                vec3 gs = uGroup[g];
+                // К сухожилиям деформация сходит на нет — мышца крепится к кости
+                float w = 1.0 - smoothstep(0.55, 1.0, abs(aMuscle.y));
+                vec3 q = transformed - aCenter;
+                float al = dot(q, aAxis);
+                vec3 rad = q - aAxis * al;
+                vec3 moved = aCenter + aAxis * al * gs.y + rad * gs.x;
+                moved += normal * gs.z * sin(uTime * 55.0 + aCenter.x * 9.0 + aCenter.y * 5.0) * 0.012;
+                transformed = mix(transformed, moved, w);
+            }
+            vBodyPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+            vMuscle = aMuscle;
+            vCenter = aCenter;
+            vAxis = aAxis;`);
+}
+
+/** Uniform групп мышц: общий для кожи и мышц — бицепс растёт и под кожей. */
+export function makeGroupUniform() {
+    return { value: Array.from({ length: MUSCLE_GROUP_COUNT }, () => new THREE.Vector3(1, 1, 0)) };
+}
+
+const HASH = /* glsl */ `
+float bodyHash(vec3 p) {
+    p = fract(p * 0.3183099 + 0.1);
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float bodyNoise(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(
+        mix(mix(bodyHash(i), bodyHash(i + vec3(1, 0, 0)), f.x), mix(bodyHash(i + vec3(0, 1, 0)), bodyHash(i + vec3(1, 1, 0)), f.x), f.y),
+        mix(mix(bodyHash(i + vec3(0, 0, 1)), bodyHash(i + vec3(1, 0, 1)), f.x), mix(bodyHash(i + vec3(0, 1, 1)), bodyHash(i + vec3(1, 1, 1)), f.x), f.y),
+        f.z);
+}
+float segDist(vec3 p, vec3 a, vec3 b) {
+    vec3 pa = p - a, ba = b - a;
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(pa - ba * h);
+}
+`;
+
+/**
+ * Кожа. uniforms — объект с числовыми uniform-ами, которые сцена ведёт к
+ * целям сама: uBurn (ожог), uHeat (перегрев), uWrinkle (морщины), uScales
+ * (ихтиоз), uWound (длина раны 0..1), uScar (рубец), uTouch (рецепторы),
+ * uNumb (онемение).
+ */
+export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
+    const material = new THREE.MeshPhysicalMaterial({
+        color: '#e3b596',
+        roughness: 0.52,
+        metalness: 0,
+        sheen: 0.6,
+        sheenRoughness: 0.5,
+        sheenColor: new THREE.Color('#ffd6c4'),
+        clearcoat: 0.08,
+        clearcoatRoughness: 0.6,
+        clippingPlanes,
+    });
+    material.onBeforeCompile = (shader) => {
+        Object.assign(shader.uniforms, uniforms);
+        patchVertex(shader);
+        shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', `#include <common>
+                varying vec3 vBodyPos;
+                varying vec2 vMuscle;
+                varying vec3 vCenter;
+                varying vec3 vAxis;
+                uniform float uBurn;
+                uniform float uHeat;
+                uniform float uWrinkle;
+                uniform float uScales;
+                uniform float uWound;
+                uniform float uScar;
+                uniform float uTouch;
+                uniform float uNumb;
+                uniform float uTime;
+                ${HASH}`)
+            .replace('#include <color_fragment>', `#include <color_fragment>
+                vec3 P = vBodyPos;
+                // Лёгкая неровность цвета: кожа никогда не бывает одного тона
+                diffuseColor.rgb *= 0.93 + 0.1 * bodyNoise(P * 9.0);
+                // Румянец на щеках, губы, розовые ладони и колени
+                float blush = smoothstep(0.16, 0.0, length(vec2(abs(P.x) - 0.2, P.y - 3.08))) * step(0.25, P.z);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.5, 0.46), blush * 0.35);
+
+                // Ожог: сверху и спереди — плечи, лицо, грудь
+                float sunlit = smoothstep(1.7, 2.6, P.y) * (0.6 + 0.4 * smoothstep(-0.1, 0.4, P.z));
+                float blotch = 0.75 + 0.25 * bodyNoise(P * 6.0);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.26, 0.2), uBurn * sunlit * blotch * 0.85);
+
+                // Перегрев: вся кожа наливается красным и блестит от пота
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9, 0.42, 0.34), uHeat * 0.45);
+
+                // Онемение: кисти бледнеют и синеют
+                float hands = smoothstep(1.02, 1.12, abs(P.x)) * smoothstep(0.25, 0.05, P.y);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.66, 0.82), uNumb * hands * 0.7);
+
+                // Морщины: лицо, шея, тыльная сторона кистей
+                float wrinkleZone = smoothstep(2.6, 2.9, P.y) + hands;
+                float lines = pow(abs(sin(P.y * 95.0 + sin(P.x * 22.0) * 2.2)), 18.0);
+                float crows = pow(abs(sin(atan(P.y - 3.27, abs(P.x) - 0.3) * 9.0)), 30.0) * smoothstep(0.2, 0.05, length(vec2(abs(P.x) - 0.33, P.y - 3.27)));
+                diffuseColor.rgb *= 1.0 - uWrinkle * clamp(wrinkleZone, 0.0, 1.0) * (lines + crows) * 0.45;
+
+                // Ихтиоз: роговые пластины ромбической решёткой, как чешуя
+                vec2 sc = vec2(P.x * 13.0 + P.y * 7.0, P.x * 13.0 - P.y * 7.0) + vec2(P.z * 6.0);
+                vec2 cell = abs(fract(sc) - 0.5);
+                float border = smoothstep(0.42, 0.5, max(cell.x, cell.y));
+                float plate = bodyHash(vec3(floor(sc), 1.0));
+                vec3 scaleTone = mix(vec3(0.62, 0.55, 0.46), vec3(0.48, 0.42, 0.36), plate);
+                diffuseColor.rgb = mix(diffuseColor.rgb, scaleTone * (1.0 - border * 0.6), uScales * 0.85);
+
+                // Рана на левом предплечье: заживает от концов к середине
+                vec3 wa = vec3(1.1, 0.78, 0.13);
+                vec3 wb = vec3(1.15, 0.45, 0.14);
+                float wd = segDist(P, mix(wa, wb, 0.5 - 0.5 * uWound), mix(wa, wb, 0.5 + 0.5 * uWound));
+                float wound = smoothstep(0.03, 0.012, wd) * step(0.0, P.z);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.55, 0.06, 0.08), wound * step(0.02, uWound));
+                float scar = smoothstep(0.035, 0.018, segDist(P, wa, wb)) * step(0.0, P.z);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.8, 0.76), scar * uScar);`)
+            .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+                // Рецепторы касания светятся точками на ладонях и пальцах
+                vec3 rc = floor(P * 55.0);
+                float receptor = step(0.93, bodyHash(rc)) * hands;
+                float pulse = 0.5 + 0.5 * sin(uTime * 4.0 + bodyHash(rc + 3.0) * 30.0);
+                totalEmissiveRadiance += vec3(1.0, 0.55, 0.75) * receptor * pulse * uTouch * 1.6;
+                // Пот при перегреве: влажные блики вспыхивают и гаснут
+                float sweat = step(0.985, bodyHash(floor(P * 70.0))) * (0.5 + 0.5 * sin(uTime * 2.0 + P.y * 10.0));
+                totalEmissiveRadiance += vec3(0.9, 0.9, 1.0) * sweat * uHeat * 0.6;`);
+    };
+    material.customProgramCacheKey = () => 'body-skin-sdf';
+    return material;
+}
+
+/**
+ * Мышцы: волокна вдоль длины (по uv.x — окружность, по uv.y — длина), к
+ * концам веретена — белые сухожилия. uOssify превращает волокна в кость,
+ * uCramp темнит и синит мышцу, uFatigue бледнит, uPower — тёплое свечение
+ * работающей мышцы.
+ */
+export function createMuscleMaterial(uniforms, { clippingPlanes } = {}) {
+    const material = new THREE.MeshStandardMaterial({
+        color: '#b8323c',
+        roughness: 0.42,
+        metalness: 0,
+        clippingPlanes,
+        // Мышцы лежат вплотную под кожей: сдвиг глубины не даёт им мерцать
+        // сквозь неё, пока линия снятия идёт по телу
+        polygonOffset: true,
+        polygonOffsetFactor: 2,
+        polygonOffsetUnits: 2,
+    });
+    material.onBeforeCompile = (shader) => {
+        Object.assign(shader.uniforms, uniforms);
+        patchVertex(shader);
+        shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', `#include <common>
+                varying vec3 vBodyPos;
+                varying vec2 vMuscle;
+                varying vec3 vCenter;
+                varying vec3 vAxis;
+                uniform float uOssify;
+                uniform float uCramp;
+                uniform float uFatigue;
+                uniform float uPower;
+                uniform float uTime;
+                ${HASH}`)
+            .replace('#include <color_fragment>', `#include <color_fragment>
+                vec3 P = vBodyPos;
+                // Волокна идут вдоль оси своей мышцы: расстояние до оси,
+                // нарезанное полосами, на поверхности даёт линии вдоль мышцы
+                bool isMuscle = vMuscle.x > 0.5;
+                vec3 q = P - vCenter;
+                float radial = length(q - vAxis * dot(q, vAxis));
+                float stripes = isMuscle ? radial * 150.0 : (P.x * 90.0 + P.y * 12.0 + P.z * 60.0);
+                float fiber = 0.5 + 0.5 * sin(stripes + bodyNoise(P * 22.0) * 2.4);
+                float fine = 0.5 + 0.5 * sin(stripes * 3.1);
+                vec3 muscle = mix(vec3(0.42, 0.07, 0.09), vec3(0.8, 0.21, 0.23), fiber * 0.7 + fine * 0.3);
+                // Сухожилия у концов мышцы, фасция — светлые разводы между мышцами
+                float tendon = isMuscle ? smoothstep(0.72, 0.97, abs(vMuscle.y)) : smoothstep(0.55, 0.9, bodyNoise(P * 4.0)) * 0.4;
+                muscle = mix(muscle, vec3(0.92, 0.88, 0.8), clamp(tendon, 0.0, 1.0));
+                // Судорога: мышца темнеет до багрового
+                muscle = mix(muscle, vec3(0.32, 0.04, 0.16), uCramp * 0.6);
+                // Истощение: бледная, обескровленная
+                muscle = mix(muscle, vec3(0.72, 0.56, 0.54), uFatigue * 0.55);
+                // Окостенение: волокна белеют и твердеют, по ним идут трещины
+                float crack = smoothstep(0.47, 0.5, abs(bodyNoise(P * 14.0) - 0.5) + 0.02);
+                vec3 bone = mix(vec3(0.9, 0.86, 0.76), vec3(0.62, 0.58, 0.5), crack);
+                diffuseColor.rgb = mix(muscle, bone, uOssify);`)
+            .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+                roughnessFactor = mix(roughnessFactor, 0.8, uOssify);`)
+            .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+                float beat = 0.5 + 0.5 * sin(uTime * 2.2 + vBodyPos.y * 1.5);
+                totalEmissiveRadiance += vec3(0.5, 0.06, 0.04) * uPower * beat * (1.0 - uOssify) * 0.35;`);
+    };
+    material.customProgramCacheKey = () => 'body-muscle';
+    return material;
+}
+
+/** Числовые uniform-ы с плавным ведением к цели. */
+export function makeUniforms(initial) {
+    const out = {};
+    Object.entries(initial).forEach(([k, v]) => { out[k] = { value: v }; });
+    return out;
+}
+
+export function dampUniforms(uniforms, targets, speed, dt) {
+    Object.entries(targets).forEach(([k, v]) => {
+        if (uniforms[k]) uniforms[k].value = THREE.MathUtils.damp(uniforms[k].value, v, speed, dt);
+    });
+}

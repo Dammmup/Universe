@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { useStore } from '../../store';
 import { FACTORS_DATA } from '../../data/factors';
+import { isEffectivelyReversed } from '../../data/consequences';
 import { circleSprite } from '../../lib/sprites';
 import { seededRandom } from '../../lib/geo';
 import FactorMarker from '../effects/FactorMarker';
@@ -26,7 +27,11 @@ const smooth = (a, b, v) => {
 
 // ─── Хуки ───────────────────────────────────────────────────────────────────
 
-export const useReversed = (id) => useStore((s) => !!s.reversedFactors[id]);
+/**
+ * Действующее состояние фактора для картинки: перевёрнут сам или пришло эхо
+ * с другого слоя (data/consequences.js).
+ */
+export const useReversed = (id) => useStore((s) => isEffectivelyReversed(s.reversedFactors, id));
 
 /** Плавное значение 0↔1 вслед за флагом. Читается в useFrame через .current. */
 export function useBlend(on, speed = 1.2) {

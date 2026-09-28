@@ -67,7 +67,9 @@ await step('1-dive', () => wheel(), { flashAt: 3200, settle: 3200 });
 await step('2-spin', () => wheel(), { flashAt: 1200, settle: 2600 });
 await step('2b-spin', () => wheel(), { flashAt: 1200, settle: 2600 });
 await step('3-flesh', () => wheel(400), { flashAt: 1100, settle: 3000 });
-await step('4-matter', () => page.evaluate(() => window.realityStore.getState().nextStage()), { flashAt: 1100, settle: 3200 });
+// Из тела в разум — через мозг; из разума в клетку — колесом
+await step('4-mind', () => page.evaluate(() => window.realityStore.getState().enterMind()), { flashAt: 1100, settle: 3200 });
+await step('4b-matter', () => page.evaluate(() => window.realityStore.getState().nextStage()), { flashAt: 1100, settle: 3200 });
 await step('5-origin', () => wheel(), { flashAt: 1300, settle: 3600 });
 await step('6-back', () => page.evaluate(() => window.realityStore.getState().prevStage()), { flashAt: 1100, settle: 3400 });
 
@@ -80,7 +82,8 @@ const ok = report[0].settled.stage === 1
     && report[4].settled.stage === 5
     && report[5].settled.stage === 6
     && report[6].settled.stage === 7
-    && report[7].settled.stage === 6
+    && report[7].settled.stage === 8
+    && report[8].settled.stage === 7
     && errors.length === 0;
 
 await browser.close();

@@ -4,7 +4,9 @@
  * природные локации и города. Все три живут в одной сцене (Planet.jsx):
  * между ними планета доворачивается в кадре, а не меняется вуалью.
  *
- * Человек стоит перед клеткой: масштаб убывает монотонно.
+ * Человек стоит перед клеткой: масштаб убывает монотонно. Между телом и
+ * клеткой — «Разум»: сеть нейронов внутри головы. Антропо-уровень внутри
+ * себя листает подуровни тела (data/bodyLayers.js), не меняя слоя.
  */
 export const STAGE = {
     SINGULARITY: 0,
@@ -13,8 +15,9 @@ export const STAGE = {
     NATURE: 3,
     SOCIETY: 4,
     HUMAN: 5,
-    CELL: 6,
-    FINALE: 7,
+    MIND: 6,
+    CELL: 7,
+    FINALE: 8,
 };
 
 export const MAX_STAGE = STAGE.FINALE;
@@ -32,6 +35,7 @@ export const STAGE_TITLES = {
     [STAGE.NATURE]: { kicker: 'Мезо-уровень 2', title: 'Природа и стихии' },
     [STAGE.SOCIETY]: { kicker: 'Мезо-уровень 3', title: 'Общество' },
     [STAGE.HUMAN]: { kicker: 'Антропо-уровень', title: 'Человек' },
+    [STAGE.MIND]: { kicker: 'Антропо-уровень · глубже', title: 'Разум' },
     [STAGE.CELL]: { kicker: 'Микро-уровень', title: 'Клетка и сознание' },
     [STAGE.FINALE]: { kicker: 'Путь пройден', title: 'Итог' },
 };

@@ -562,6 +562,8 @@ function MyelinAxon({ reversed }) {
     );
 }
 
+// Факторы сознания (внимание, абстракция, сны) переехали в «Разум» —
+// здесь остаётся то, что происходит внутри одной клетки.
 const FACTORS = [
     { id: 'cellMembrane', label: 'МЕМБРАНА', reverse: 'ПРОТЕЧКА', color: '#62e9ff', reverseColor: '#647885', pos: [0, -3.15, 1.4] },
     { id: 'dnaRepair', label: 'РЕМОНТ ДНК', reverse: 'ОШИБКИ', color: '#7dff91', reverseColor: '#8a6a72', pos: [-1.85, 1.85, 1.55] },
@@ -571,10 +573,6 @@ const FACTORS = [
     { id: 'proteinSynthesis', label: 'БЕЛОК', reverse: 'ДЕФЕКТ', color: '#ff9fe7', reverseColor: '#80677b', pos: [2.55, -2.05, 1.25] },
     { id: 'mitochondria', label: 'АТФ', reverse: 'ПРОВАЛ', color: '#ffc65a', reverseColor: '#786547', pos: [3.35, 1.85, 0.95] },
     { id: 'myelin', label: 'МИЕЛИН', reverse: 'РАЗОБЩЕНИЕ', color: '#e8fbff', reverseColor: '#808a92', pos: [0, 3.55, 1.05] },
-    { id: 'dominanta', label: 'ДОМИНАНТА', reverse: 'РАССЕЯННОСТЬ', color: '#ff4e9c', reverseColor: '#707070', pos: [3.7, -0.35, 1.1] },
-    { id: 'abstraction', label: 'АБСТРАКЦИЯ', reverse: 'БУКВАЛЬНОСТЬ', color: '#32ffc7', reverseColor: '#868686', pos: [-3.7, 0.55, 1.1] },
-    { id: 'attention', label: 'ВНИМАНИЕ', reverse: 'РАСФОКУС', color: '#ffffff', reverseColor: '#8f8f8f', pos: [1.7, 2.85, 1.2] },
-    { id: 'dreaming', label: 'СОН-ОБРАЗ', reverse: 'ПУСТОТА', color: '#9ba7ff', reverseColor: '#6b6b82', pos: [-3.15, -2.35, 1.35] },
 ];
 
 export default function MicroCosmos() {

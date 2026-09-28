@@ -6,10 +6,12 @@ import { useStore } from './store';
 import { locationById } from './data/locations';
 import { STAGE, STAGE_TITLES, isEarthStage } from './lib/stages';
 import { SHOTS, earthWorld } from './lib/journey';
-import { BODY_OVERVIEW, BODY_REGIONS, bodyRegionById } from './data/body';
+import { BODY_OVERVIEW } from './data/bodyLayers';
 import Onboarding from './components/Onboarding';
 import FactorModal from './components/FactorModal';
+import Echoes from './components/Echoes';
 import MesoPanel from './components/MesoPanel';
+import { HumanPanel, MindPanel } from './components/HumanPanel';
 import { ScenarioJournal, ScenarioModal } from './components/Scenarios';
 import { SCENARIOS } from './data/scenarios';
 import SceneVeil from './scenes/effects/SceneVeil';
@@ -22,6 +24,7 @@ const loadCosmos = () => import('./scenes/Cosmos');
 const loadPlanet = () => import('./scenes/Planet');
 const loadMicroCosmos = () => import('./scenes/MicroCosmos');
 const loadHumanBody = () => import('./scenes/HumanBody');
+const loadMind = () => import('./scenes/Mind');
 const loadFinale = () => import('./scenes/Finale');
 const loadLocation = () => import('./scenes/Location');
 
@@ -30,6 +33,7 @@ const Cosmos = lazy(loadCosmos);
 const Planet = lazy(loadPlanet);
 const MicroCosmos = lazy(loadMicroCosmos);
 const HumanBody = lazy(loadHumanBody);
+const Mind = lazy(loadMind);
 const Finale = lazy(loadFinale);
 const Location = lazy(loadLocation);
 
@@ -40,6 +44,7 @@ const Location = lazy(loadLocation);
  */
 const HUMAN_STAGE = STAGE.HUMAN;
 const CELL_STAGE = STAGE.CELL;
+const MIND_STAGE = STAGE.MIND;
 const FINALE_STAGE = STAGE.FINALE;
 
 /**
@@ -96,6 +101,7 @@ function SceneBackground() {
         // В диораме фон совпадает с горизонтом неба: под вуалью стык незаметен
         const horizon = locationById(location)?.horizon;
         target.current.set(horizon ?? (stage === HUMAN_STAGE ? '#e9edf4' : '#000000'));
+        // У разума свой фон-сфера, который красит режим сети; здесь — только тьма под ним
     }, [stage, location]);
 
     useEffect(() => {
@@ -115,6 +121,8 @@ const STAGE_SHOTS = {
     [STAGE.SINGULARITY]: { pos: [0, 0, 5], look: [0, 0, 0], fov: 60 },
     [STAGE.COSMOS]: SHOTS.cosmos,
     [HUMAN_STAGE]: BODY_OVERVIEW,
+    // Разум: вся сеть нейронов в кадре, чуть сверху
+    [MIND_STAGE]: { pos: [0, 1.4, 15.5], look: [0, 0, 0], fov: 50 },
     // Точка взгляда опущена ниже центра клетки: так она сидит выше в кадре,
     // и нижние подписи не наезжают на строку интерфейса
     [CELL_STAGE]: { pos: [0, 1.2, 11.2], look: [0, -0.75, 0], fov: 58 },
@@ -132,6 +140,7 @@ const STAGE_ENTRIES = {
     [STAGE.COSMOS]: [0, 34, 120],
     [HUMAN_STAGE]: [0, 1.4, 24],
     [CELL_STAGE]: [0, 3.4, 30],
+    [MIND_STAGE]: [0, 2.5, 3],
     [FINALE_STAGE]: [0, 1.2, 26],
 };
 
@@ -164,14 +173,12 @@ function JourneyCamera() {
     const stage = useStore((s) => s.stage);
     const approaching = useStore((s) => s.approachingEarth);
     const shift = useStore((s) => s.shift);
-    const bodyRegion = useStore((s) => s.bodyRegion);
     const location = useStore((s) => s.location);
     const finishEarthApproach = useStore((s) => s.finishEarthApproach);
     const setFreeLook = useStore((s) => s.setFreeLook);
     const { camera } = useThree();
     const prevStage = useRef(stage);
     const prevApproach = useRef(approaching);
-    const prevRegion = useRef(bodyRegion);
     const prevLocation = useRef(location);
     const look = useRef(new THREE.Vector3(0, 0, 0));
     const aimLookAt = useRef(true);
@@ -377,18 +384,6 @@ function JourneyCamera() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [location, stage, camera, tweenTo]);
 
-    // Антропо-уровень: выбор области подводит камеру к ней, сброс — возвращает
-    // фигуру целиком. Отдельный эффект, потому что стадия при этом не меняется.
-    useEffect(() => {
-        const before = prevRegion.current;
-        prevRegion.current = bodyRegion;
-        if (stage !== HUMAN_STAGE || before === bodyRegion) return undefined;
-
-        const region = bodyRegionById(bodyRegion);
-        tweenTo(region ? region.shot : BODY_OVERVIEW, region ? 1.5 : 1.7, 'power2.inOut', false);
-        return undefined;
-    }, [bodyRegion, stage, tweenTo]);
-
     // Поворот телефона меняет соотношение сторон, а значит и нужный угол
     const viewport = useThree((s) => s.size);
     useEffect(() => {
@@ -416,8 +411,6 @@ export default function App() {
     const approachingEarth = useStore((s) => s.approachingEarth);
     const freeLook = useStore((s) => s.freeLook);
     const shift = useStore((s) => s.shift);
-    const bodyRegion = useStore((s) => s.bodyRegion);
-    const setBodyRegion = useStore((s) => s.setBodyRegion);
     const nextStage = useStore((s) => s.nextStage);
 
     // Сколько факторов зритель перевернул за путь — это итог, который
@@ -432,11 +425,9 @@ export default function App() {
         ? false
         : (window.matchMedia?.('(pointer: coarse)').matches ?? 'ontouchstart' in window)));
 
-    const [humanLayer, setHumanLayer] = useState('organs');
     const shifting = !!shift;
     const activePlace = locationById(location);
-    const activeRegion = bodyRegionById(bodyRegion);
-    const bodyLook = (activeRegion?.shot ?? BODY_OVERVIEW).look;
+    const bodyLook = BODY_OVERVIEW.look;
 
     // Заголовок слоя, в который идёт переход. Нырок в локацию титруется её именем.
     const incomingStage = shift?.commit?.type === 'stage' ? shift.commit.to : stage;
@@ -446,6 +437,8 @@ export default function App() {
         : (shift?.commit?.type === 'location' ? { kicker: STAGE_TITLES[stage].kicker, title: 'Карта планеты' } : STAGE_TITLES[incomingStage]);
 
     const onCanvasCreated = useCallback(({ gl }) => {
+        // Подуровни тела снимаются плоскостью отсечения — её нужно разрешить
+        gl.localClippingEnabled = true;
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1.05;
     }, []);
@@ -453,7 +446,6 @@ export default function App() {
     const onPointerMissed = useCallback(() => {
         const state = useStore.getState();
         if (state.activeFactorId) state.clearFactor();
-        else if (state.bodyRegion) state.setBodyRegion(null);
     }, []);
 
     // Сцены подгружаем заранее: иначе чанк грузится в момент перехода и вместо
@@ -465,6 +457,12 @@ export default function App() {
             loadPlanet();
             loadMicroCosmos();
             loadHumanBody();
+            loadMind();
+            // Тело строится в фоновом потоке заранее — к антропо-уровню оно готово
+            import('./lib/bodyMesh').then(({ requestBodyMesh }) => {
+                requestBodyMesh('skin');
+                requestBodyMesh('muscle');
+            });
             loadFinale();
             loadLocation();
         });
@@ -648,12 +646,12 @@ export default function App() {
                             /* На теле облёт должен крутиться вокруг выбранной области.
                                С общей точкой [0,0,0] управление, перехватив камеру
                                после наезда, рывком уводило взгляд с головы в центр фигуры. */
-                            key={isEarthStage(stage) ? 'planet' : (stage === HUMAN_STAGE ? `body-${bodyRegion ?? 'all'}` : stage)}
+                            key={isEarthStage(stage) ? 'planet' : stage}
                             enableZoom
                             enablePan={false}
                             zoomSpeed={stage === CELL_STAGE ? 1.05 : (isEarthStage(stage) ? 0.75 : 0.6)}
-                            minDistance={isEarthStage(stage) ? 18 : stage === CELL_STAGE ? 1.4 : (stage === HUMAN_STAGE ? 1.6 : 5)}
-                            maxDistance={isEarthStage(stage) ? 90 : stage === CELL_STAGE ? 80 : (stage === HUMAN_STAGE ? 26 : 200)}
+                            minDistance={isEarthStage(stage) ? 18 : stage === CELL_STAGE ? 1.4 : (stage === HUMAN_STAGE ? 1.6 : (stage === MIND_STAGE ? 3 : 5))}
+                            maxDistance={isEarthStage(stage) ? 90 : stage === CELL_STAGE ? 80 : (stage === HUMAN_STAGE ? 26 : (stage === MIND_STAGE ? 40 : 200))}
                             /* Один палец отдан навигации по пути, иначе свайп
                                одновременно листал бы слой и крутил камеру */
                             touches={isTouch
@@ -678,7 +676,8 @@ export default function App() {
                         {(stage === STAGE.COSMOS || approachingEarth) && <Cosmos />}
                         {isEarthStage(stage) && !approachingEarth && !location && <Planet />}
                         {isEarthStage(stage) && location && <Location />}
-                        {stage === HUMAN_STAGE && <HumanBody mode={humanLayer} />}
+                        {stage === HUMAN_STAGE && <HumanBody />}
+                        {stage === MIND_STAGE && <Mind />}
                         {stage === CELL_STAGE && <MicroCosmos />}
                         {stage === FINALE_STAGE && <Finale />}
                     </Suspense>
@@ -759,60 +758,8 @@ export default function App() {
                         </button>
                     </div>
                 )}
-                {stage === HUMAN_STAGE && (
-                    <div className="text-slate-700 animate-fade-in relative z-50 pointer-events-auto">
-                        <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2 text-rose-600">
-                            {activeRegion
-                                ? `Антропо-уровень: ${activeRegion.title}`
-                                : 'Антропо-уровень: Тело, Эмоции, Личность'}
-                        </p>
-                        {humanLayer === 'organs' && (
-                            <p className="text-xs text-slate-500 mb-3">
-                                {activeRegion
-                                    ? (isTouch ? 'Касайся факторов области. Пустое место — назад к фигуре.' : 'Кликай по факторам области. Пустое место — назад к фигуре.')
-                                    : (isTouch ? 'Коснись части тела — раскроются её факторы.' : 'Наведи курсор на часть тела и кликни — раскроются её факторы.')}
-                            </p>
-                        )}
-                        {humanLayer === 'organs' && (
-                            <div className="inline-flex flex-wrap items-center justify-center gap-1 mb-2 sm:mb-3">
-                                {BODY_REGIONS.map((region) => (
-                                    <button
-                                        key={region.id}
-                                        onClick={() => setBodyRegion(bodyRegion === region.id ? null : region.id)}
-                                        className={`px-2.5 sm:px-3 py-1 rounded-full border text-[10px] sm:text-[11px] uppercase tracking-wider transition-colors ${bodyRegion === region.id
-                                            ? 'border-cyan-500 bg-cyan-500 text-white'
-                                            : 'border-slate-300 bg-white/70 text-slate-500 hover:text-slate-950'}`}
-                                    >
-                                        {region.title}
-                                    </button>
-                                ))}
-                                {bodyRegion && (
-                                    <button
-                                        onClick={() => setBodyRegion(null)}
-                                        className="px-3 py-1 rounded-full border border-slate-300 bg-white/70 text-[11px] uppercase tracking-wider text-slate-500 hover:text-slate-950 transition-colors"
-                                    >
-                                        ← Всё тело
-                                    </button>
-                                )}
-                            </div>
-                        )}
-                        <div className="inline-flex items-center gap-1 p-1 mb-2 sm:mb-4 rounded-full border border-slate-300 bg-white/75 shadow-sm backdrop-blur-md">
-                            <button
-                                onClick={() => setHumanLayer('organs')}
-                                className={`px-4 py-1.5 rounded-full text-[11px] uppercase tracking-wider transition-colors ${humanLayer === 'organs' ? 'bg-cyan-500 text-white' : 'text-slate-500 hover:text-slate-950'}`}
-                            >
-                                Органы
-                            </button>
-                            <button
-                                onClick={() => setHumanLayer('emotions')}
-                                className={`px-4 py-1.5 rounded-full text-[11px] uppercase tracking-wider transition-colors ${humanLayer === 'emotions' ? 'bg-rose-500 text-white' : 'text-slate-500 hover:text-slate-950'}`}
-                            >
-                                Эмоции
-                            </button>
-                        </div>
-                        <p className="text-[11px] text-slate-400 mt-1">{isTouch ? 'Свайп дальше — в клетку.' : 'Скролль дальше — в клетку.'}</p>
-                    </div>
-                )}
+                {stage === HUMAN_STAGE && <HumanPanel touch={isTouch} />}
+                {stage === MIND_STAGE && <MindPanel touch={isTouch} />}
                 {stage === FINALE_STAGE && (
                     <div className="animate-fade-in relative z-50 pointer-events-auto max-w-xl mx-auto px-6">
                         <p className="tracking-[0.45em] uppercase text-[10px] mb-4 text-white/35">
@@ -846,6 +793,7 @@ export default function App() {
             </div>
 
             <FactorModal />
+            <Echoes />
             <ScenarioModal />
 
         </div>

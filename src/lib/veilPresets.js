@@ -22,6 +22,12 @@ export const VEIL_PRESETS = {
         cover: 1.0, hold: 0.24, reveal: 1.55,
         coverEase: 'power3.in', revealEase: 'power2.out',
     },
+    // Сквозь мозг в разум: розовая ткань распадается на синие искры импульсов
+    mind: {
+        core: '#f4e8ff', edge: '#3a1a7a', streaks: 0.9, grain: 0.03,
+        cover: 0.95, hold: 0.24, reveal: 1.6,
+        coverEase: 'power3.in', revealEase: 'power2.out',
+    },
     // Клетка → тело: тьма разрешается в тёплый свет
     flesh: {
         core: '#ffffff', edge: '#ff9aa8', streaks: 0.5, grain: 0.02,

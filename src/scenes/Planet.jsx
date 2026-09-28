@@ -7,6 +7,7 @@ import { useStore } from '../store';
 import { latLonToArray, latLonToVec3, seededRandom, sunDirection, surfaceQuaternion } from '../lib/geo';
 import { locationsForStage } from '../data/locations';
 import { STAGE } from '../lib/stages';
+import { withEchoes } from '../data/consequences';
 import { circleSprite, starSprite } from '../lib/sprites';
 import { auroraFragment, auroraVertex } from '../lib/shaders/aurora';
 import FactorMarker from './effects/FactorMarker';
@@ -491,7 +492,9 @@ function FactorField({ factors }) {
 
 export default function Planet() {
     const stage = useStore((s) => s.stage);
-    const reversedFactors = useStore((s) => s.reversedFactors);
+    const rawReversed = useStore((s) => s.reversedFactors);
+    // Картинка учитывает эхо с других слоёв: вырубленные джунгли вянут и на глобусе
+    const reversedFactors = useMemo(() => withEchoes(rawReversed), [rawReversed]);
     const setActiveFactor = useStore((s) => s.setActiveFactor);
     const enterLocation = useStore((s) => s.enterLocation);
     // Ледники на карте — вход в Арктику: сам фактор живёт в локации

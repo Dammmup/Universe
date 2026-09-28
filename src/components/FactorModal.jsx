@@ -3,6 +3,8 @@ import { useStore } from '../store';
 import { FACTORS_DATA } from '../data/factors';
 import { placeOfFactor } from '../data/locations';
 import { SCENARIOS } from '../data/scenarios';
+import { activeSourcesOf, echoesOf } from '../data/consequences';
+import { STAGE } from '../lib/stages';
 
 /**
  * Карточка фактора.
@@ -20,6 +22,9 @@ export default function FactorModal() {
     const clearFactor = useStore((s) => s.clearFactor);
     const discovered = useStore((s) => s.discoveredScenarios);
     const blocked = useStore((s) => s.scenarioQueue.length > 0);
+    const reversedAll = useStore((s) => s.reversedFactors);
+    // В «Разуме» карточка уходит вбок: сеть нейронов — главное, что меняет клик
+    const docked = useStore((s) => s.stage === STAGE.MIND);
 
     const factor = activeFactorId ? FACTORS_DATA[activeFactorId] : null;
     if (!factor || blocked) return null;
@@ -28,10 +33,14 @@ export default function FactorModal() {
     const related = SCENARIOS.filter((s) => s.factors.includes(activeFactorId));
     const found = related.filter((s) => discovered[s.id]);
     const accent = isReversed ? 'text-cyan-300' : 'text-fuchsia-300';
+    const incoming = activeSourcesOf(reversedAll, activeFactorId);
+    const outgoing = echoesOf(activeFactorId);
 
     return (
         <div
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[100] w-[calc(100vw-2rem)] max-w-lg pointer-events-auto animate-fade-in"
+            className={docked
+                ? 'absolute right-4 top-1/2 -translate-y-1/2 z-[100] w-[calc(100vw-2rem)] max-w-sm pointer-events-auto animate-fade-in max-h-[80vh] overflow-y-auto'
+                : 'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[100] w-[calc(100vw-2rem)] max-w-lg pointer-events-auto animate-fade-in'}
             role="dialog"
             aria-label={isReversed ? factor.reverseName : factor.name}
         >
@@ -86,6 +95,23 @@ export default function FactorModal() {
                         {factor.reverseName}
                     </span>
                 </button>
+
+                {/* Эхо: связь с другими слоями — откуда пришло и куда уйдёт */}
+                {(incoming.length > 0 || outgoing.length > 0) && (
+                    <div className="relative flex flex-col gap-1.5 rounded-xl border border-amber-200/15 bg-amber-200/[0.04] px-4 py-3">
+                        <span className="text-[10px] uppercase tracking-[0.3em] text-amber-200/60">Эхо между слоями</span>
+                        {incoming.map((l) => (
+                            <p key={`in-${l.from}`} className="text-xs text-amber-100/85 leading-snug">
+                                ← Сейчас действует: {l.text}
+                            </p>
+                        ))}
+                        {outgoing.map((l) => (
+                            <p key={`out-${l.to}`} className={`text-xs leading-snug ${isReversed ? 'text-white/75' : 'text-white/45'}`}>
+                                → {isReversed ? '' : 'Если перевернуть: '}{l.text}
+                            </p>
+                        ))}
+                    </div>
+                )}
 
                 {related.length > 0 && (
                     <p className="relative text-[11px] text-white/40 leading-snug">
