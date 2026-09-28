@@ -849,7 +849,7 @@ function EarthSystem({ reversedFactors, onSelect }) {
                 </mesh>
                 <BillboardText
                     position={[0, -RADIUS - 0.5, 0]}
-                    fontSize={0.42}
+                    fontSize={0.85}
                     color={lowTide ? '#88aacc' : '#aaddff'}
                     anchorX="center"
                     anchorY="top"
@@ -863,7 +863,7 @@ function EarthSystem({ reversedFactors, onSelect }) {
 
             <BillboardText
                 position={[0, RADIUS + 1.5, 0]}
-                fontSize={0.46}
+                fontSize={0.9}
                 color="#ffffff"
                 anchorX="center"
                 anchorY="bottom"
@@ -873,7 +873,7 @@ function EarthSystem({ reversedFactors, onSelect }) {
             </BillboardText>
             <BillboardText
                 position={[0, RADIUS + 1.05, 0]}
-                fontSize={0.5}
+                fontSize={0.95}
                 color={antigravity ? '#ff6644' : '#54b6ff'}
                 anchorX="center"
                 anchorY="bottom"
