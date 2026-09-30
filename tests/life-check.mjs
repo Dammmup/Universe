@@ -45,13 +45,11 @@ const shot = async (stage, name, extra) => {
     return fps;
 };
 
-const organs = await shot(4, '4-human-organs');
-const emotions = await shot(4, '4-human-emotions', () => {
-    const btn = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Эмоции'));
-    btn?.click();
-});
-const micro = await shot(5, '5-micro-new');
+const skin = await shot(5, '5-human-skin');
+const organs = await shot(5, '5-human-organs', () => window.realityStore.getState().setBodyLayer(2));
+const mind = await shot(6, '6-mind');
+const micro = await shot(7, '7-micro-new');
 
-console.log(JSON.stringify({ micro, organs, emotions, errors }, null, 2));
+console.log(JSON.stringify({ micro, skin, organs, mind, errors }, null, 2));
 await browser.close();
 process.exit(errors.length ? 1 : 0);

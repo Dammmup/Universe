@@ -46,6 +46,9 @@ const nature = await page.evaluate(() => ({
 }));
 await page.screenshot({ path: 'tests/screenshots/journey-3-nature.png' });
 
+// Планета → природа → города: глобус дважды доворачивается, камера стоит
+await page.evaluate(() => window.realityStore.getState().nextStage());
+await page.waitForTimeout(2600);
 await page.evaluate(() => window.realityStore.getState().nextStage());
 await page.waitForTimeout(2600);
 const city = await page.evaluate(() => window.realityStore.getState().stage);
@@ -53,4 +56,4 @@ await page.screenshot({ path: 'tests/screenshots/journey-4-city.png' });
 
 console.log(JSON.stringify({ mid, nature, city, errors }, null, 2));
 await browser.close();
-process.exit(errors.length || city !== 3 || nature.approaching ? 1 : 0);
+process.exit(errors.length || city !== 4 || nature.approaching ? 1 : 0);

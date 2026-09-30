@@ -1,12 +1,20 @@
 import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Html } from '@react-three/drei';
+import { OrbitControls, Html, PerformanceMonitor } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore } from './store';
-import { FACTORS_DATA } from './data/factors';
+import { locationById } from './data/locations';
+import { STAGE, STAGE_TITLES, isEarthStage } from './lib/stages';
 import { SHOTS, earthWorld } from './lib/journey';
-import { BODY_OVERVIEW, BODY_REGIONS, bodyRegionById } from './data/body';
+import { BODY_OVERVIEW } from './data/bodyLayers';
 import Onboarding from './components/Onboarding';
+import FactorModal from './components/FactorModal';
+import Echoes from './components/Echoes';
+import FinaleSummary from './components/FinaleSummary';
+import { SoundController } from './components/Sound';
+import MesoPanel from './components/MesoPanel';
+import { HumanPanel, MindPanel } from './components/HumanPanel';
+import { ScenarioJournal, ScenarioModal } from './components/Scenarios';
 import SceneVeil from './scenes/effects/SceneVeil';
 import PostFX from './scenes/effects/PostFX';
 import { veilPreset } from './lib/veilPresets';
@@ -17,49 +25,43 @@ const loadCosmos = () => import('./scenes/Cosmos');
 const loadPlanet = () => import('./scenes/Planet');
 const loadMicroCosmos = () => import('./scenes/MicroCosmos');
 const loadHumanBody = () => import('./scenes/HumanBody');
+const loadMind = () => import('./scenes/Mind');
 const loadFinale = () => import('./scenes/Finale');
+const loadLocation = () => import('./scenes/Location');
 
 const BigBang = lazy(loadBigBang);
 const Cosmos = lazy(loadCosmos);
 const Planet = lazy(loadPlanet);
 const MicroCosmos = lazy(loadMicroCosmos);
 const HumanBody = lazy(loadHumanBody);
+const Mind = lazy(loadMind);
 const Finale = lazy(loadFinale);
+const Location = lazy(loadLocation);
 
 /**
- * Порядок слоёв. Человек стоит перед клеткой: масштаб должен убывать
- * монотонно, а прежний порядок «общество → клетка → человек» проваливал
- * зрителя в микромир и возвращал обратно к телу.
+ * Порядок слоёв — в lib/stages.js. Человек стоит перед клеткой: масштаб
+ * убывает монотонно. Заголовки слоёв (STAGE_TITLES) всплывают в момент
+ * перехода, пока кадр залит вуалью.
  */
-export const HUMAN_STAGE = 4;
-export const CELL_STAGE = 5;
-const FINALE_STAGE = 6;
-
-/** Заголовки слоёв: всплывают в момент перехода, пока кадр залит вуалью. */
-const STAGE_TITLES = {
-    0: { kicker: 'Начало', title: 'Сингулярность' },
-    1: { kicker: 'Макро-уровень', title: 'Космос' },
-    2: { kicker: 'Мезо-уровень 1', title: 'Природа и стихии' },
-    3: { kicker: 'Мезо-уровень 2', title: 'Общество' },
-    [HUMAN_STAGE]: { kicker: 'Антропо-уровень', title: 'Человек' },
-    [CELL_STAGE]: { kicker: 'Микро-уровень', title: 'Клетка и сознание' },
-    [FINALE_STAGE]: { kicker: 'Путь пройден', title: 'Итог' },
-};
+const HUMAN_STAGE = STAGE.HUMAN;
+const CELL_STAGE = STAGE.CELL;
+const MIND_STAGE = STAGE.MIND;
+const FINALE_STAGE = STAGE.FINALE;
 
 /**
  * Ограничивает разрешение рендера на слабых машинах и следит за потерей
  * контекста WebGL: без восстановления сцена оставалась бы чёрным экраном.
  */
 function RendererGuard() {
-    const { gl, scene, camera, invalidate } = useThree();
+    const { gl, scene, camera, invalidate, get } = useThree();
 
     useEffect(() => {
         // В разработке отдаём рендерер наружу: так видно draw calls, число
         // треугольников и объём текстур без ручного инструментирования сцены.
         if (import.meta.env.DEV) {
-            window.realityRenderer = { gl, scene, camera };
+            window.realityRenderer = { gl, scene, camera, get controls() { return get().controls; } };
         }
-    }, [gl, scene, camera]);
+    }, [gl, scene, camera, get]);
 
     useEffect(() => {
         const canvas = gl.domElement;
@@ -91,13 +93,17 @@ function RendererGuard() {
  */
 function SceneBackground() {
     const stage = useStore((s) => s.stage);
+    const location = useStore((s) => s.location);
     const { scene } = useThree();
     const target = useRef(new THREE.Color('#000000'));
     const current = useRef(new THREE.Color('#000000'));
 
     useEffect(() => {
-        target.current.set(stage === HUMAN_STAGE ? '#e9edf4' : '#000000');
-    }, [stage]);
+        // В диораме фон совпадает с горизонтом неба: под вуалью стык незаметен
+        const horizon = locationById(location)?.horizon;
+        target.current.set(horizon ?? (stage === HUMAN_STAGE ? '#e9edf4' : '#000000'));
+        // У разума свой фон-сфера, который красит режим сети; здесь — только тьма под ним
+    }, [stage, location]);
 
     useEffect(() => {
         scene.background = current.current;
@@ -113,14 +119,16 @@ function SceneBackground() {
 
 /** Точка, к которой камера летит на каждом слое — центр композиции кадра. */
 const STAGE_SHOTS = {
-    0: { pos: [0, 0, 5], look: [0, 0, 0], fov: 60 },
-    1: SHOTS.cosmos,
+    [STAGE.SINGULARITY]: { pos: [0, 0, 5], look: [0, 0, 0], fov: 60 },
+    [STAGE.COSMOS]: SHOTS.cosmos,
     [HUMAN_STAGE]: BODY_OVERVIEW,
+    // Разум: вся сеть нейронов в кадре, чуть сверху
+    [MIND_STAGE]: { pos: [0, 1.4, 15.5], look: [0, 0, 0], fov: 50 },
     // Точка взгляда опущена ниже центра клетки: так она сидит выше в кадре,
     // и нижние подписи не наезжают на строку интерфейса
-    [CELL_STAGE]: { pos: [0, 1.2, 11.2], look: [0, -0.75, 0], fov: 58 },
+    [CELL_STAGE]: { pos: [0, 0.6, 12.4], look: [0, -1.45, 0], fov: 58 },
     // Финал: вся нить масштабов целиком в кадре
-    6: { pos: [0, -0.1, 9.6], look: [0, 0.1, 0], fov: 46 },
+    [FINALE_STAGE]: { pos: [0, -0.1, 9.6], look: [0, 0.1, 0], fov: 46 },
 };
 
 /**
@@ -129,11 +137,12 @@ const STAGE_SHOTS = {
  * читается как продолжение полёта, а не как появление новой картинки.
  */
 const STAGE_ENTRIES = {
-    0: [0, 0, 16],
-    1: [0, 34, 120],
+    [STAGE.SINGULARITY]: [0, 0, 16],
+    [STAGE.COSMOS]: [0, 34, 120],
     [HUMAN_STAGE]: [0, 1.4, 24],
     [CELL_STAGE]: [0, 3.4, 30],
-    6: [0, 1.2, 26],
+    [MIND_STAGE]: [0, 2.5, 3],
+    [FINALE_STAGE]: [0, 1.2, 26],
 };
 
 /**
@@ -165,13 +174,13 @@ function JourneyCamera() {
     const stage = useStore((s) => s.stage);
     const approaching = useStore((s) => s.approachingEarth);
     const shift = useStore((s) => s.shift);
-    const bodyRegion = useStore((s) => s.bodyRegion);
+    const location = useStore((s) => s.location);
     const finishEarthApproach = useStore((s) => s.finishEarthApproach);
     const setFreeLook = useStore((s) => s.setFreeLook);
     const { camera } = useThree();
     const prevStage = useRef(stage);
     const prevApproach = useRef(approaching);
-    const prevRegion = useRef(bodyRegion);
+    const prevLocation = useRef(location);
     const look = useRef(new THREE.Vector3(0, 0, 0));
     const aimLookAt = useRef(true);
     const unlockTimer = useRef(null);
@@ -224,10 +233,13 @@ function JourneyCamera() {
         // назад. Направление берём из самого перехода, а не из типа вуали:
         // одна и та же вуаль обслуживает оба направления между телом и
         // клеткой. Взрыв — исключение, он сам расталкивает камеру от центра.
-        const target = shift.commit?.type === 'stage' ? shift.commit.to : null;
-        const inward = shift.kind === 'bang'
-            ? false
-            : (target === null || target > prevStage.current);
+        const commit = shift.commit;
+        const target = commit?.type === 'stage' ? commit.to : null;
+        let inward;
+        if (shift.kind === 'bang') inward = false;
+        // Нырок в локацию — вниз к земле, выход на карту — отрыв назад
+        else if (commit?.type === 'location') inward = !!commit.id;
+        else inward = target === null || target > prevStage.current;
 
         const dir = new THREE.Vector3().subVectors(look.current, camera.position);
         const dist = dir.length();
@@ -297,7 +309,7 @@ function JourneyCamera() {
 
         // Космос → детальная Земля. Подмена сцены уже накрыта вуалью, поэтому
         // камеру можно поставить в стартовую точку и продолжить наезд.
-        if (wasApproaching && !approaching && stage === 2) {
+        if (wasApproaching && !approaching && stage === STAGE.PLANET) {
             camera.position.set(...SHOTS.fromSpace.pos);
             look.current.set(...SHOTS.fromSpace.look);
             camera.fov = fovForAspect(SHOTS.fromSpace.fov, camera.aspect);
@@ -308,12 +320,12 @@ function JourneyCamera() {
 
         if (stage === from && approaching === wasApproaching) return undefined;
 
-        // Природа ↔ город: камера стоит, крутится планета
-        if ((stage === 2 && from === 3) || (stage === 3 && from === 2)) {
+        // Между слоями планеты камера стоит, крутится сам глобус
+        if (isEarthStage(stage) && isEarthStage(from)) {
             return undefined;
         }
 
-        if ((stage === 2 || stage === 3) && from !== 2 && from !== 3 && !approaching) {
+        if (isEarthStage(stage) && !approaching) {
             camera.position.set(...SHOTS.fromSpace.pos);
             look.current.set(...SHOTS.fromSpace.look);
             camera.fov = fovForAspect(SHOTS.fromSpace.fov, camera.aspect);
@@ -340,17 +352,38 @@ function JourneyCamera() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [stage, approaching, camera, finishEarthApproach, setFreeLook, tweenTo]);
 
-    // Антропо-уровень: выбор области подводит камеру к ней, сброс — возвращает
-    // фигуру целиком. Отдельный эффект, потому что стадия при этом не меняется.
+    // Локации мезо-уровней: под вуалью камера ставится высоко над местностью
+    // и опускается к кадру диорамы; при выходе — снова портрет планеты.
     useEffect(() => {
-        const before = prevRegion.current;
-        prevRegion.current = bodyRegion;
-        if (stage !== 5 || before === bodyRegion) return undefined;
+        const before = prevLocation.current;
+        prevLocation.current = location;
+        if (before === location) return undefined;
 
-        const region = bodyRegionById(bodyRegion);
-        tweenTo(region ? region.shot : BODY_OVERVIEW, region ? 1.5 : 1.7, 'power2.inOut', false);
+        const veil = shift ? veilPreset(shift.kind) : null;
+        const arrival = veil ? veil.hold + veil.reveal + 0.35 : 1.4;
+        const place = locationById(location);
+
+        if (place) {
+            const { shot } = place;
+            camera.position.set(shot.pos[0] * 1.2, shot.pos[1] + 22, shot.pos[2] + 26);
+            look.current.set(...shot.look);
+            camera.fov = fovForAspect(Math.min(shot.fov + 12, 80), camera.aspect);
+            camera.updateProjectionMatrix();
+            tweenTo(shot, Math.max(arrival, 2.3), 'power2.out', false);
+            return undefined;
+        }
+
+        if (isEarthStage(stage)) {
+            camera.position.set(...SHOTS.fromSpace.pos);
+            look.current.set(...SHOTS.fromSpace.look);
+            camera.fov = fovForAspect(SHOTS.fromSpace.fov, camera.aspect);
+            camera.updateProjectionMatrix();
+            tweenTo(SHOTS.earth, Math.max(arrival, 2.0), 'power2.out', false);
+        }
         return undefined;
-    }, [bodyRegion, stage, tweenTo]);
+        // shift читаем как «есть ли активная вуаль», перезапуск от него не нужен
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location, stage, camera, tweenTo]);
 
     // Поворот телефона меняет соотношение сторон, а значит и нужный угол
     const viewport = useThree((s) => s.size);
@@ -372,40 +405,40 @@ export default function App() {
     const stage = useStore((s) => s.stage);
     const isExploded = useStore((s) => s.isExploded);
     const activeFactorId = useStore((s) => s.activeFactorId);
-    const isReversed = useStore((s) => !!s.reversedFactors[s.activeFactorId]);
-    const toggleReverse = useStore((s) => s.toggleReverse);
-    const clearFactor = useStore((s) => s.clearFactor);
-    const resetJourney = useStore((s) => s.resetJourney);
+    const location = useStore((s) => s.location);
+    const scenarioOpen = useStore((s) => s.scenarioQueue.length > 0);
     const approachingEarth = useStore((s) => s.approachingEarth);
     const freeLook = useStore((s) => s.freeLook);
     const shift = useStore((s) => s.shift);
-    const bodyRegion = useStore((s) => s.bodyRegion);
-    const setBodyRegion = useStore((s) => s.setBodyRegion);
     const nextStage = useStore((s) => s.nextStage);
-
-    // Сколько факторов зритель перевернул за путь — это итог, который
-    // показывает финальный экран
-    const reversedCount = useStore(
-        (s) => Object.values(s.reversedFactors).filter(Boolean).length,
-    );
 
     // Сенсорный экран меняет и управление, и формулировки подсказок: «скролль»
     // и «наведи курсор» на телефоне ничего не значат
+    // Режим качества: высокий по умолчанию, низкий — если кадры проседают
+    // (PerformanceMonitor ниже) или задан вручную: ?quality=low
+    const [quality, setQuality] = useState(() => (
+        typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('quality') === 'low' ? 'low' : 'high'
+    ));
+    const lowQuality = quality === 'low';
+
     const [isTouch] = useState(() => (typeof window === 'undefined'
         ? false
         : (window.matchMedia?.('(pointer: coarse)').matches ?? 'ontouchstart' in window)));
 
-    const [humanLayer, setHumanLayer] = useState('organs');
-    const activeFactor = activeFactorId ? FACTORS_DATA[activeFactorId] : null;
     const shifting = !!shift;
-    const activeRegion = bodyRegionById(bodyRegion);
-    const bodyLook = (activeRegion?.shot ?? BODY_OVERVIEW).look;
+    const activePlace = locationById(location);
+    const bodyLook = BODY_OVERVIEW.look;
 
-    // Заголовок слоя, в который идёт переход
+    // Заголовок слоя, в который идёт переход. Нырок в локацию титруется её именем.
     const incomingStage = shift?.commit?.type === 'stage' ? shift.commit.to : stage;
-    const title = STAGE_TITLES[incomingStage];
+    const incomingPlace = shift?.commit?.type === 'location' ? locationById(shift.commit.id) : null;
+    const title = incomingPlace
+        ? { kicker: incomingPlace.place, title: incomingPlace.title }
+        : (shift?.commit?.type === 'location' ? { kicker: STAGE_TITLES[stage].kicker, title: 'Карта планеты' } : STAGE_TITLES[incomingStage]);
 
     const onCanvasCreated = useCallback(({ gl }) => {
+        // Подуровни тела снимаются плоскостью отсечения — её нужно разрешить
+        gl.localClippingEnabled = true;
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1.05;
     }, []);
@@ -413,7 +446,6 @@ export default function App() {
     const onPointerMissed = useCallback(() => {
         const state = useStore.getState();
         if (state.activeFactorId) state.clearFactor();
-        else if (state.bodyRegion) state.setBodyRegion(null);
     }, []);
 
     // Сцены подгружаем заранее: иначе чанк грузится в момент перехода и вместо
@@ -425,7 +457,14 @@ export default function App() {
             loadPlanet();
             loadMicroCosmos();
             loadHumanBody();
+            loadMind();
+            // Тело строится в фоновом потоке заранее — к антропо-уровню оно готово
+            import('./lib/bodyMesh').then(({ requestBodyMesh }) => {
+                requestBodyMesh('skin');
+                requestBodyMesh('muscle');
+            });
             loadFinale();
+            loadLocation();
         });
         return () => {
             if (window.cancelIdleCallback) window.cancelIdleCallback(handle);
@@ -477,7 +516,7 @@ export default function App() {
                 } else if (after.shift) {
                     const preset = veilPreset(after.shift.kind);
                     holdMs = (preset.cover + preset.hold + preset.reveal) * 1000 + 250;
-                } else if (from === 2 || from === 3 || to === 2 || to === 3) {
+                } else if (!after.location && (isEarthStage(from) || isEarthStage(to))) {
                     // 2↔3 крутят одну планету ~2.4с
                     holdMs = 2600;
                 } else {
@@ -497,7 +536,7 @@ export default function App() {
             // отдавал колесо зуму, но реальная мышь шлёт 120 — из клетки нельзя
             // было уйти ни вперёд, ни назад, и микромир «вылезал» второй раз
             // при возврате с антропо-уровня. Зум остался на Ctrl + колесо.
-            const threshold = useStore.getState().stage >= 1 ? 40 : 5;
+            const threshold = useStore.getState().stage >= STAGE.COSMOS ? 40 : 5;
             if (Math.abs(e.deltaY) < threshold) return;
 
             e.preventDefault();
@@ -566,8 +605,11 @@ export default function App() {
             {/* 3D Canvas */}
             <div className="absolute inset-0">
                 <Canvas
+                    /* Тени нужны только диорамам локаций. PCFSoft в three 0.183
+                       объявлен устаревшим — берём обычный PCF */
+                    shadows={lowQuality ? false : 'percentage'}
                     camera={{ position: [0, 0, 5], fov: 60, near: 0.1, far: 1400 }}
-                    dpr={[1, 1.75]}
+                    dpr={lowQuality ? [0.75, 1] : [1, 1.75]}
                     gl={{ antialias: true, powerPreference: 'high-performance', stencil: false }}
                     onCreated={onCanvasCreated}
                     /* Клик мимо всего — выход из области тела обратно к фигуре */
@@ -580,17 +622,36 @@ export default function App() {
                     {/* Во время киношного наезда мышь не крутит камеру.
                         На природе и в городе после кадра — тот же облёт, чтобы
                         дотянуться до факторов на краях и обратной стороне. */}
-                    {isExploded && stage >= 1 && !approachingEarth && freeLook && !shifting && (
+                    {isExploded && stage >= 1 && !approachingEarth && freeLook && !shifting && activePlace && (
+                        /* В диораме облёт вокруг центра местности и не ниже земли */
+                        <OrbitControls
+                            key={`loc-${activePlace.id}`}
+                            enableZoom
+                            enablePan={false}
+                            zoomSpeed={0.7}
+                            minDistance={10}
+                            maxDistance={110}
+                            maxPolarAngle={Math.PI * 0.46}
+                            touches={isTouch
+                                ? { ONE: THREE.TOUCH.NONE, TWO: THREE.TOUCH.DOLLY_ROTATE }
+                                : { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
+                            dampingFactor={0.08}
+                            enableDamping
+                            target={activePlace.shot.look}
+                            makeDefault
+                        />
+                    )}
+                    {isExploded && stage >= 1 && !approachingEarth && freeLook && !shifting && !activePlace && (
                         <OrbitControls
                             /* На теле облёт должен крутиться вокруг выбранной области.
                                С общей точкой [0,0,0] управление, перехватив камеру
                                после наезда, рывком уводило взгляд с головы в центр фигуры. */
-                            key={stage === 2 || stage === 3 ? 'planet' : (stage === HUMAN_STAGE ? `body-${bodyRegion ?? 'all'}` : stage)}
+                            key={isEarthStage(stage) ? 'planet' : stage}
                             enableZoom
                             enablePan={false}
-                            zoomSpeed={stage === CELL_STAGE ? 1.05 : (stage === 2 || stage === 3 ? 0.75 : 0.6)}
-                            minDistance={stage === 2 || stage === 3 ? 18 : stage === CELL_STAGE ? 1.4 : (stage === HUMAN_STAGE ? 1.6 : 5)}
-                            maxDistance={stage === 2 || stage === 3 ? 90 : stage === CELL_STAGE ? 80 : (stage === HUMAN_STAGE ? 26 : 200)}
+                            zoomSpeed={stage === CELL_STAGE ? 1.05 : (isEarthStage(stage) ? 0.75 : 0.6)}
+                            minDistance={isEarthStage(stage) ? 18 : stage === CELL_STAGE ? 1.4 : (stage === HUMAN_STAGE ? 1.6 : (stage === MIND_STAGE ? 3 : 5))}
+                            maxDistance={isEarthStage(stage) ? 90 : stage === CELL_STAGE ? 80 : (stage === HUMAN_STAGE ? 26 : (stage === MIND_STAGE ? 40 : 200))}
                             /* Один палец отдан навигации по пути, иначе свайп
                                одновременно листал бы слой и крутил камеру */
                             touches={isTouch
@@ -598,7 +659,7 @@ export default function App() {
                                 : { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
                             dampingFactor={0.08}
                             enableDamping
-                            target={stage === 2 || stage === 3 ? [0, 0.4, 0] : (stage === HUMAN_STAGE ? bodyLook : [0, 0, 0])}
+                            target={isEarthStage(stage) ? [0, 0.4, 0] : (stage === HUMAN_STAGE ? bodyLook : [0, 0, 0])}
                             makeDefault
                         />
                     )}
@@ -611,12 +672,14 @@ export default function App() {
                             </div>
                         </Html>
                     }>
-                        {stage === 0 && <BigBang />}
-                        {(stage === 1 || approachingEarth) && <Cosmos />}
-                        {(stage === 2 || stage === 3) && !approachingEarth && <Planet />}
-                        {stage === HUMAN_STAGE && <HumanBody mode={humanLayer} />}
+                        {stage === STAGE.SINGULARITY && <BigBang />}
+                        {(stage === STAGE.COSMOS || approachingEarth) && <Cosmos />}
+                        {isEarthStage(stage) && !approachingEarth && !location && <Planet />}
+                        {isEarthStage(stage) && location && <Location />}
+                        {stage === HUMAN_STAGE && <HumanBody />}
+                        {stage === MIND_STAGE && <Mind />}
                         {stage === CELL_STAGE && <MicroCosmos />}
-                        {stage === 6 && <Finale />}
+                        {stage === FINALE_STAGE && <Finale />}
                     </Suspense>
 
                     {/* Вуаль рисуется последней и накрывает стык слоёв */}
@@ -624,10 +687,15 @@ export default function App() {
 
                     {/* На светлом антропо-уровне порог свечения поднят: иначе
                         сам фон проходит порог и размывает тело в молоко */}
+                    {/* В дневных диорамах небо само по себе яркое: порог выше,
+                        чтобы светились огни и лава, а не весь горизонт */}
+                    {/* Слабая машина: если кадров стабильно мало, падают
+                        разрешение, тени и свечение — сцена остаётся плавной */}
+                    <PerformanceMonitor flipflops={2} onDecline={() => setQuality('low')} onFallback={() => setQuality('low')} />
                     <PostFX
-                        bloomStrength={stage === HUMAN_STAGE ? 0.32 : 0.5}
-                        bloomThreshold={stage === HUMAN_STAGE ? 1.15 : 0.85}
-                        vignette={stage === HUMAN_STAGE ? 0.16 : 0.44}
+                        bloomStrength={lowQuality ? 0 : (stage === HUMAN_STAGE ? 0.32 : (location ? 0.42 : 0.5))}
+                        bloomThreshold={stage === HUMAN_STAGE ? 1.15 : (location ? 0.95 : 0.85)}
+                        vignette={stage === HUMAN_STAGE ? 0.16 : (location ? 0.36 : 0.44)}
                     />
 
                 </Canvas>
@@ -639,17 +707,21 @@ export default function App() {
             >
                 {title && (
                     <>
-                        <p className={`text-[11px] tracking-[0.55em] uppercase mb-3 transition-transform duration-1000 ${shifting ? 'translate-y-0' : 'translate-y-3'} ${incomingStage === 5 ? 'text-slate-900/70' : 'text-white/60'}`}>
+                        <p className={`text-[11px] tracking-[0.55em] uppercase mb-3 transition-transform duration-1000 ${shifting ? 'translate-y-0' : 'translate-y-3'} ${incomingStage === HUMAN_STAGE ? 'text-slate-900/70' : 'text-white/60'}`}>
                             {title.kicker}
                         </p>
-                        <h2 className={`text-3xl md:text-5xl font-light tracking-[0.22em] uppercase transition-transform duration-1000 ${shifting ? 'translate-y-0 scale-100' : 'translate-y-4 scale-95'} ${incomingStage === 5 ? 'text-slate-900' : 'text-white'}`}>
+                        <h2 className={`text-3xl md:text-5xl font-light tracking-[0.22em] uppercase transition-transform duration-1000 ${shifting ? 'translate-y-0 scale-100' : 'translate-y-4 scale-95'} ${incomingStage === HUMAN_STAGE ? 'text-slate-900' : 'text-white'}`}>
                             {title.title}
                         </h2>
                     </>
                 )}
             </div>
 
-            <Onboarding stage={stage} hidden={shifting || !!activeFactor} light={stage === HUMAN_STAGE} touch={isTouch} />
+            <Onboarding stage={stage} hidden={shifting || !!activeFactorId || scenarioOpen} light={stage === HUMAN_STAGE} touch={isTouch} />
+            <ScenarioJournal light={stage === HUMAN_STAGE} hidden={stage === 0 || shifting} />
+
+            {/* Подложка под нижней панелью: на песке, снегу и небе без неё текст теряется */}
+            <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-black/75 via-black/30 to-transparent transition-opacity duration-700 ${location && !shifting ? 'opacity-100' : 'opacity-0'}`} />
 
             {/* UI Overlay */}
             <div className={`absolute bottom-4 sm:bottom-10 w-full px-4 text-center pointer-events-none data-ui transition-opacity duration-500 ${shifting ? 'opacity-0' : 'opacity-100'}`}>
@@ -658,41 +730,28 @@ export default function App() {
                         {isTouch ? 'Свайп вверх для старта' : 'Скролль вниз для старта'}
                     </p>
                 )}
-                {stage === 1 && (
+                {stage === STAGE.COSMOS && (
                     <div className="text-white/70 animate-fade-in relative z-50">
                         <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2">Макрокосмос</p>
                         <p className="text-xs text-white/50">{isTouch ? 'Двумя пальцами — облёт, касание — объект. Свайп дальше.' : 'Вращай камеру, кликай на объекты. Скролль дальше.'}</p>
                     </div>
                 )}
-                {stage === 2 && approachingEarth && (
+                {stage === STAGE.PLANET && approachingEarth && (
                     <div className="text-white/70 animate-fade-in relative z-50">
                         <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2">Приближение к Земле</p>
                         <p className="text-xs text-white/40">Камера входит в систему. Планета растёт в кадре.</p>
                     </div>
                 )}
-                {stage === 2 && !approachingEarth && (
-                    <div className="text-white/70 animate-fade-in relative z-50">
-                        <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2">
-                            Мезо-уровень 1: Природа и Стихии
-                        </p>
-                        <p className="text-xs text-white/40">{isTouch ? 'Двумя пальцами — облёт, касание — фактор. Свайп дальше — Земля повернётся к городам.' : 'Вращай планету, кликай на факторы. Скролль дальше — Земля повернётся к городам.'}</p>
-                    </div>
-                )}
-                {stage === 3 && (
-                    <div className="text-white/70 animate-fade-in relative z-50">
-                        <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2 text-yellow-500">
-                            Мезо-уровень 2: Общество и Цивилизация
-                        </p>
-                        <p className="text-xs text-white/40">{isTouch ? 'Двумя пальцами — облёт, касание — фактор. Свайп дальше — к человеку.' : 'Вращай планету, кликай на факторы. Скролль дальше — к человеку.'}</p>
-                    </div>
+                {isEarthStage(stage) && !approachingEarth && (
+                    <MesoPanel stage={stage} touch={isTouch} />
                 )}
                 {stage === CELL_STAGE && (
                     <div className="text-white/70 animate-fade-in relative z-50 pointer-events-auto">
                         <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2 text-fuchsia-400">
-                            Микро-уровень: Рождение Сознания
+                            Микро-уровень: клетка
                         </p>
                         <p className="text-xs text-white/40 mb-4 font-light">
-                            Внутри клеток и синапсов. {isTouch ? 'Свайп дальше — к итогу пути. Двумя пальцами — зум.' : 'Скролль дальше — к итогу пути. Ctrl + колесо приближает.'}
+                            Внутри одной клетки: мембрана, ДНК, энергия, синапс. {isTouch ? 'Свайп дальше — к итогу пути. Двумя пальцами — зум.' : 'Скролль дальше — к итогу пути. Ctrl + колесо приближает.'}
                         </p>
                         <button
                             onClick={nextStage}
@@ -702,122 +761,15 @@ export default function App() {
                         </button>
                     </div>
                 )}
-                {stage === HUMAN_STAGE && (
-                    <div className="text-slate-700 animate-fade-in relative z-50 pointer-events-auto">
-                        <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2 text-rose-600">
-                            {activeRegion
-                                ? `Антропо-уровень: ${activeRegion.title}`
-                                : 'Антропо-уровень: Тело, Эмоции, Личность'}
-                        </p>
-                        {humanLayer === 'organs' && (
-                            <p className="text-xs text-slate-500 mb-3">
-                                {activeRegion
-                                    ? (isTouch ? 'Касайся факторов области. Пустое место — назад к фигуре.' : 'Кликай по факторам области. Пустое место — назад к фигуре.')
-                                    : (isTouch ? 'Коснись части тела — раскроются её факторы.' : 'Наведи курсор на часть тела и кликни — раскроются её факторы.')}
-                            </p>
-                        )}
-                        {humanLayer === 'organs' && (
-                            <div className="inline-flex flex-wrap items-center justify-center gap-1 mb-2 sm:mb-3">
-                                {BODY_REGIONS.map((region) => (
-                                    <button
-                                        key={region.id}
-                                        onClick={() => setBodyRegion(bodyRegion === region.id ? null : region.id)}
-                                        className={`px-2.5 sm:px-3 py-1 rounded-full border text-[10px] sm:text-[11px] uppercase tracking-wider transition-colors ${bodyRegion === region.id
-                                            ? 'border-cyan-500 bg-cyan-500 text-white'
-                                            : 'border-slate-300 bg-white/70 text-slate-500 hover:text-slate-950'}`}
-                                    >
-                                        {region.title}
-                                    </button>
-                                ))}
-                                {bodyRegion && (
-                                    <button
-                                        onClick={() => setBodyRegion(null)}
-                                        className="px-3 py-1 rounded-full border border-slate-300 bg-white/70 text-[11px] uppercase tracking-wider text-slate-500 hover:text-slate-950 transition-colors"
-                                    >
-                                        ← Всё тело
-                                    </button>
-                                )}
-                            </div>
-                        )}
-                        <div className="inline-flex items-center gap-1 p-1 mb-2 sm:mb-4 rounded-full border border-slate-300 bg-white/75 shadow-sm backdrop-blur-md">
-                            <button
-                                onClick={() => setHumanLayer('organs')}
-                                className={`px-4 py-1.5 rounded-full text-[11px] uppercase tracking-wider transition-colors ${humanLayer === 'organs' ? 'bg-cyan-500 text-white' : 'text-slate-500 hover:text-slate-950'}`}
-                            >
-                                Органы
-                            </button>
-                            <button
-                                onClick={() => setHumanLayer('emotions')}
-                                className={`px-4 py-1.5 rounded-full text-[11px] uppercase tracking-wider transition-colors ${humanLayer === 'emotions' ? 'bg-rose-500 text-white' : 'text-slate-500 hover:text-slate-950'}`}
-                            >
-                                Эмоции
-                            </button>
-                        </div>
-                        <p className="text-[11px] text-slate-400 mt-1">{isTouch ? 'Свайп дальше — в клетку.' : 'Скролль дальше — в клетку.'}</p>
-                    </div>
-                )}
-                {stage === FINALE_STAGE && (
-                    <div className="animate-fade-in relative z-50 pointer-events-auto max-w-xl mx-auto px-6">
-                        <p className="tracking-[0.45em] uppercase text-[10px] mb-4 text-white/35">
-                            Путь пройден
-                        </p>
-                        <p className="text-sm text-white/65 leading-relaxed mb-3">
-                            Шесть масштабов — от сингулярности до собственного тела.
-                            Везде работали одни и те же факторы, только под разными именами.
-                        </p>
-                        <p className="text-sm text-cyan-200/80 mb-5">
-                            {reversedCount > 0
-                                ? `Ты перевернул факторов: ${reversedCount}. Реальность осталась собранной.`
-                                : 'Ты не перевернул ни одного фактора. Пройди снова и попробуй — мир соберётся иначе.'}
-                        </p>
-                        <p className="text-base text-white/90 italic mb-6">
-                            «Я не просто изучаю вселенную. Я её активирую.»
-                        </p>
-                        <button
-                            onClick={resetJourney}
-                            className="px-6 py-2 border border-white/30 rounded-full text-xs uppercase tracking-wider text-white/70 hover:bg-white hover:text-black transition-colors"
-                        >
-                            Пройти путь снова
-                        </button>
-                    </div>
-                )}
+                {stage === HUMAN_STAGE && <HumanPanel touch={isTouch} />}
+                {stage === MIND_STAGE && <MindPanel touch={isTouch} />}
+                {stage === FINALE_STAGE && <FinaleSummary />}
             </div>
 
-            {/* Factor Tooltip Modal */}
-            {activeFactor && (
-                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black/85 border border-white/20 p-5 sm:p-8 rounded-2xl w-[calc(100vw-2rem)] max-w-lg z-[100] text-left pointer-events-auto backdrop-blur-md shadow-[0_0_50px_rgba(255,255,255,0.1)] transition-all animate-fade-in flex flex-col gap-4">
-
-                    <h3 className={`text-2xl font-bold uppercase tracking-widest ${isReversed ? 'text-cyan-400' : 'text-fuchsia-400'}`}>
-                        {isReversed ? activeFactor.reverseName : activeFactor.name}
-                    </h3>
-
-                    <p className="text-base text-white/90 leading-relaxed">
-                        {isReversed ? activeFactor.reverseDescription : activeFactor.description}
-                    </p>
-
-                    <div className="bg-white/5 p-4 rounded-lg border border-white/10 mt-2">
-                        <span className="text-xs text-white/50 uppercase tracking-wider block mb-1">Природа фактора:</span>
-                        <p className="text-sm text-yellow-100/80 italic">
-                            {activeFactor.influence}
-                        </p>
-                    </div>
-
-                    <div className="flex justify-between items-center border-t border-white/20 pt-5 mt-2">
-                        <button
-                            onClick={toggleReverse}
-                            className={`text-sm font-bold uppercase tracking-widest transition-colors px-4 py-2 rounded border ${isReversed ? 'border-fuchsia-400 text-fuchsia-400 hover:bg-fuchsia-400 hover:text-black' : 'border-cyan-400 text-cyan-400 hover:bg-cyan-400 hover:text-black'}`}
-                        >
-                            Включить {isReversed ? activeFactor.name : activeFactor.reverseName}
-                        </button>
-                        <button
-                            onClick={clearFactor}
-                            className="text-sm text-white/50 hover:text-white uppercase tracking-widest transition-colors px-4 py-2"
-                        >
-                            Закрыть
-                        </button>
-                    </div>
-                </div>
-            )}
+            <SoundController />
+            <FactorModal />
+            <Echoes />
+            <ScenarioModal />
 
         </div>
     );

@@ -32,7 +32,8 @@ const burstWheel = async () => {
 await page.evaluate(() => {
     const s = window.realityStore.getState();
     s.triggerBang();
-    s.setStage(2);
+    // Природа: следующий жест — поворот к городам, за ним вуаль к человеку
+    s.setStage(3);
 });
 await page.waitForTimeout(800);
 
@@ -44,18 +45,18 @@ await page.screenshot({ path: 'tests/screenshots/after-burst-from-2.png' });
 
 await page.waitForTimeout(2600);
 await burstWheel();
-// Переход 3→4 накрыт вуалью: стадия меняется в середине заливки, а не сразу
+// Переход общество → человек накрыт вуалью: стадия меняется в середине заливки, а не сразу
 await page.waitForTimeout(1400);
 const afterSecond = await page.evaluate(() => window.realityStore.getState().stage);
 await page.screenshot({ path: 'tests/screenshots/after-second-burst.png' });
 
-await page.evaluate(() => window.realityStore.getState().setStage(3));
+await page.evaluate(() => window.realityStore.getState().setStage(4));
 await page.waitForTimeout(2500);
 const overlay = await page.locator('text=Общество').count();
 await page.screenshot({ path: 'tests/screenshots/stage-3-civilisation.png' });
 
 console.log(JSON.stringify({ before, afterBurst, afterSecond, overlay }, null, 2));
 
-const ok = before === 2 && afterBurst === 3 && afterSecond === 4 && overlay > 0;
+const ok = before === 3 && afterBurst === 4 && afterSecond === 5 && overlay > 0;
 await browser.close();
 process.exit(ok ? 0 : 1);

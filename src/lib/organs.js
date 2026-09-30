@@ -151,6 +151,33 @@ export function buildBrainstem() {
     ], 40, 16);
 }
 
+/**
+ * Почка: боб длиной в полтора позвонка, вогнутой стороной к позвоночнику.
+ * side = 1 — правая (+X), -1 — левая.
+ */
+export function buildKidney(side = 1) {
+    return sweepProfile([
+        { x: 0, y: 0.15, z: 0, rx: 0.02, rz: 0.02 },
+        { x: side * 0.012, y: 0.12, z: 0, rx: 0.06, rz: 0.045 },
+        { x: side * 0.022, y: 0.05, z: 0, rx: 0.075, rz: 0.05 },
+        { x: side * 0.018, y: -0.03, z: 0, rx: 0.07, rz: 0.05 },
+        { x: side * 0.022, y: -0.1, z: 0, rx: 0.07, rz: 0.048 },
+        { x: side * 0.012, y: -0.14, z: 0, rx: 0.05, rz: 0.04 },
+        { x: 0, y: -0.16, z: 0, rx: 0.02, rz: 0.02 },
+    ], 40, 18);
+}
+
+/** Мочевой пузырь: груша основанием вниз, за лобковой костью. */
+export function buildBladder() {
+    return sweepProfile([
+        { y: 0.12, z: 0, rx: 0.02, rz: 0.02 },
+        { y: 0.09, z: 0, rx: 0.08, rz: 0.07 },
+        { y: 0.0, z: 0, rx: 0.12, rz: 0.1 },
+        { y: -0.08, z: 0, rx: 0.1, rz: 0.08 },
+        { y: -0.12, z: 0, rx: 0.02, rz: 0.02 },
+    ], 30, 18);
+}
+
 export function disposeAll(geometries) {
     Object.values(geometries).forEach((geometry) => {
         if (geometry instanceof THREE.BufferGeometry) geometry.dispose();

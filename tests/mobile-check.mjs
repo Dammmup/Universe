@@ -51,7 +51,8 @@ await page.waitForTimeout(7000);
 report.push({ step: 'bang', stage: await stage() });
 await page.screenshot({ path: `${OUT}/1-cosmos.png` });
 
-for (const [name, wait] of [['nature', 9000], ['society', 3500], ['human', 5000], ['cell', 5000]]) {
+// После человека свайпы листают подуровни тела (4 шага), пятый уводит в разум
+for (const [name, wait] of [['planet', 9000], ['nature', 3500], ['society', 3500], ['human', 5000], ['muscle', 1800], ['organs', 1800], ['bones', 1800], ['nerves', 1800], ['mind', 5000]]) {
     await swipe(true);
     await page.waitForTimeout(wait);
     report.push({ step: name, stage: await stage() });
@@ -81,7 +82,9 @@ const ok = report[0].stage === 1
     && report[2].stage === 3
     && report[3].stage === 4
     && report[4].stage === 5
-    && report[5].stage === 4
+    && report[8].stage === 5
+    && report[9].stage === 6
+    && report[10].stage === 5
     && errors.length === 0;
 
 await browser.close();

@@ -5,33 +5,23 @@ import * as THREE from 'three';
 import { useStore } from '../store';
 import { seededRandom } from '../lib/geo';
 import { circleSprite, starSprite } from '../lib/sprites';
+import { SCALES, reversedInScale } from '../data/scales';
 
 /**
  * Итог пути.
  *
- * Раньше путь просто упирался в антропо-уровень: дальше скролла не было, и
- * шесть пройденных масштабов нигде не сходились вместе. Здесь они показаны
- * одной нитью света — от сингулярности до тела, — по которой бежит импульс.
- * Вокруг нити вращаются искры по числу перевёрнутых факторов: финал говорит
- * не «конец», а «вот что ты сделал с реальностью».
+ * Все пройденные масштабы — одной нитью света, от сингулярности до клетки, —
+ * и по ней бежит импульс. У каждого узла кружат искры по числу факторов,
+ * перевёрнутых на этом масштабе: видно, где зритель изменил мир сильнее всего.
  */
-
-const SCALES = [
-    { title: 'Сингулярность', tone: '#ffd9a0' },
-    { title: 'Космос', tone: '#9ec8ff' },
-    { title: 'Природа', tone: '#7fe6b0' },
-    { title: 'Общество', tone: '#ffd166' },
-    { title: 'Клетка', tone: '#d9a0ff' },
-    { title: 'Человек', tone: '#ff9aa8' },
-];
 
 /** Точки нити: пологая дуга из верхнего левого угла в нижний правый. */
 const NODES = SCALES.map((scale, i) => ({
     ...scale,
     position: [
-        -4.15 + i * 1.66,
-        2.40 - i * 0.58 + Math.sin(i * 1.7) * 0.16,
-        -1.1 + i * 0.42,
+        -4.6 + i * 1.32,
+        2.55 - i * 0.44 + Math.sin(i * 1.7) * 0.16,
+        -1.1 + i * 0.3,
     ],
 }));
 
@@ -110,7 +100,8 @@ function ScaleNode({ node, index }) {
                     blending={THREE.AdditiveBlending}
                 />
             </sprite>
-            <Billboard position={[0, -0.62, 0]}>
+            {/* Подписи через одну сверху и снизу: у соседних узлов они иначе сталкивались */}
+            <Billboard position={[0, index % 2 ? 0.5 : -0.62, 0]}>
                 <Text
                     font="/Roboto-Regular.ttf"
                     fontSize={0.23}
@@ -118,7 +109,7 @@ function ScaleNode({ node, index }) {
                     color={node.tone}
                     fillOpacity={0.85}
                     anchorX="center"
-                    anchorY="top"
+                    anchorY={index % 2 ? 'bottom' : 'top'}
                     outlineColor="#000000"
                     outlineWidth={0.012}
                     outlineOpacity={0.6}
@@ -171,23 +162,23 @@ function Thread() {
 }
 
 /**
- * Искры перевёрнутых факторов: по одной на каждый реверс, который зритель
- * включил за путь. Ноль реверсов — нить остаётся голой, и это тоже ответ.
+ * Искры перевёрнутых факторов: у каждого узла — по числу реверсов на его
+ * масштабе. Узел без искр — масштаб, который зритель оставил как был.
  */
-function ReversalSparks({ count }) {
+function ReversalSparks({ node, count }) {
     const groupRef = useRef();
     const tex = useMemo(() => circleSprite(), []);
 
     const sparks = useMemo(() => {
-        const rand = seededRandom(0x2b1e);
+        const rand = seededRandom(0x2b1e + node.title.length * 31);
         return Array.from({ length: count }, () => ({
-            radius: 1.6 + rand() * 3.4,
-            speed: 0.12 + rand() * 0.22,
+            radius: 0.28 + rand() * 0.34,
+            speed: 0.5 + rand() * 0.9,
             phase: rand() * Math.PI * 2,
-            height: 0.6 + (rand() - 0.5) * 3.0,
-            size: 0.3 + rand() * 0.25,
+            tilt: (rand() - 0.5) * 1.4,
+            size: 0.12 + rand() * 0.1,
         }));
-    }, [count]);
+    }, [count, node.title]);
 
     useFrame((state) => {
         const group = groupRef.current;
@@ -199,8 +190,8 @@ function ReversalSparks({ count }) {
             const angle = spark.phase + t * spark.speed;
             child.position.set(
                 Math.cos(angle) * spark.radius,
-                spark.height + Math.sin(t * 0.5 + spark.phase) * 0.22,
-                Math.sin(angle) * spark.radius * 0.5,
+                Math.sin(angle) * spark.radius * spark.tilt,
+                Math.sin(angle) * spark.radius,
             );
         });
     });
@@ -208,14 +199,14 @@ function ReversalSparks({ count }) {
     if (count === 0) return null;
 
     return (
-        <group ref={groupRef}>
+        <group ref={groupRef} position={node.position}>
             {sparks.map((spark, i) => (
                 <sprite key={i} scale={[spark.size, spark.size, 1]}>
                     <spriteMaterial
                         map={tex}
-                        color="#9ff0ff"
+                        color={node.tone}
                         transparent
-                        opacity={0.75}
+                        opacity={0.9}
                         depthWrite={false}
                         toneMapped={false}
                         blending={THREE.AdditiveBlending}
@@ -230,10 +221,6 @@ export default function Finale() {
     const reversedFactors = useStore((s) => s.reversedFactors);
     const groupRef = useRef();
 
-    const reversedCount = useMemo(
-        () => Object.values(reversedFactors).filter(Boolean).length,
-        [reversedFactors],
-    );
 
     useFrame((state) => {
         if (!groupRef.current) return;
@@ -250,7 +237,9 @@ export default function Finale() {
                 {NODES.map((node, i) => (
                     <ScaleNode key={node.title} node={node} index={i} />
                 ))}
-                <ReversalSparks count={Math.min(reversedCount, 48)} />
+                {NODES.map((node) => (
+                    <ReversalSparks key={`s${node.title}`} node={node} count={Math.min(reversedInScale(node, reversedFactors), 24)} />
+                ))}
             </group>
         </group>
     );
