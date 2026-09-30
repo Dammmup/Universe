@@ -18,6 +18,7 @@ import { ScenarioJournal, ScenarioModal } from './components/Scenarios';
 import SceneVeil from './scenes/effects/SceneVeil';
 import PostFX from './scenes/effects/PostFX';
 import { veilPreset } from './lib/veilPresets';
+import { watchReducedMotion } from './lib/motion';
 import gsap from 'gsap';
 
 const loadBigBang = () => import('./scenes/BigBang');
@@ -175,6 +176,7 @@ function JourneyCamera() {
     const approaching = useStore((s) => s.approachingEarth);
     const shift = useStore((s) => s.shift);
     const location = useStore((s) => s.location);
+    const calm = useStore((s) => s.calm);
     const finishEarthApproach = useStore((s) => s.finishEarthApproach);
     const setFreeLook = useStore((s) => s.setFreeLook);
     const { camera } = useThree();
@@ -228,6 +230,9 @@ function JourneyCamera() {
     // «внутрь», вверх — отрывается назад. Вспышка перестаёт быть статичной.
     useEffect(() => {
         if (!shift) return undefined;
+        // В спокойном режиме разгона нет вовсе: именно бросок камеры внутрь
+        // кадра под вспышкой и укачивает сильнее всего
+        if (calm) return undefined;
         const preset = veilPreset(shift.kind);
         // Вниз по масштабу камера падает внутрь кадра, наверх — отрывается
         // назад. Направление берём из самого перехода, а не из типа вуали:
@@ -269,7 +274,7 @@ function JourneyCamera() {
         prevApproach.current = approaching;
 
         // Длительность въезда: пока вуаль сходит, камера должна ещё ехать
-        const veil = shift ? veilPreset(shift.kind) : null;
+        const veil = shift ? veilPreset(shift.kind, calm) : null;
         const arrival = veil ? veil.hold + veil.reveal + 0.35 : 1.4;
 
         // Пролёт к живой Земле, пока ещё видна Солнечная система
@@ -337,12 +342,20 @@ function JourneyCamera() {
         const shot = STAGE_SHOTS[stage];
         if (!shot) return undefined;
 
-        const entry = STAGE_ENTRIES[stage];
+        // В спокойном режиме въезда нет: камера появляется почти на месте.
+        // Сокращать время пролёта тут нельзя — от этого он стал бы резче, а не
+        // спокойнее; убираем саму дистанцию.
+        const entry = calm ? null : STAGE_ENTRIES[stage];
         if (entry && shift) {
             // Под вуалью ставим камеру в точку въезда — зритель этого не видит
             camera.position.set(...entry);
             look.current.set(...shot.look);
             camera.fov = fovForAspect(Math.min(shot.fov + 12, 85), camera.aspect);
+            camera.updateProjectionMatrix();
+        } else if (shift) {
+            camera.position.set(...shot.pos);
+            look.current.set(...shot.look);
+            camera.fov = fovForAspect(shot.fov, camera.aspect);
             camera.updateProjectionMatrix();
         }
 
@@ -359,7 +372,7 @@ function JourneyCamera() {
         prevLocation.current = location;
         if (before === location) return undefined;
 
-        const veil = shift ? veilPreset(shift.kind) : null;
+        const veil = shift ? veilPreset(shift.kind, calm) : null;
         const arrival = veil ? veil.hold + veil.reveal + 0.35 : 1.4;
         const place = locationById(location);
 
@@ -448,6 +461,10 @@ export default function App() {
         if (state.activeFactorId) state.clearFactor();
     }, []);
 
+    // Системную настройку «меньше движения» меняют на ходу — путь не должен
+    // требовать перезагрузки, чтобы её заметить
+    useEffect(() => watchReducedMotion(useStore.getState().setCalm), []);
+
     // Сцены подгружаем заранее: иначе чанк грузится в момент перехода и вместо
     // кинематографичной стыковки зритель видит спиннер Suspense.
     useEffect(() => {
@@ -514,7 +531,7 @@ export default function App() {
                     // Пролёт сквозь систему + вспышка атмосферы
                     holdMs = 5200;
                 } else if (after.shift) {
-                    const preset = veilPreset(after.shift.kind);
+                    const preset = veilPreset(after.shift.kind, after.calm);
                     holdMs = (preset.cover + preset.hold + preset.reveal) * 1000 + 250;
                 } else if (!after.location && (isEarthStage(from) || isEarthStage(to))) {
                     // 2↔3 крутят одну планету ~2.4с
@@ -586,15 +603,41 @@ export default function App() {
             step(dy < 0);
         };
 
+        // ─── Клавиатура ───────────────────────────────────────────────────
+        // Путь проходился только колесом и свайпом: с клавиатуры добраться
+        // дальше первого слоя было нельзя вообще.
+        const FORWARD_KEYS = new Set(['ArrowDown', 'ArrowRight', 'PageDown', ' ', 'Spacebar']);
+        const BACK_KEYS = new Set(['ArrowUp', 'ArrowLeft', 'PageUp']);
+
+        const onKeyDown = (e) => {
+            // Модификаторы отданы браузеру и зуму, автоповтор от зажатой
+            // клавиши не должен проматывать путь насквозь
+            if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+
+            // Пока фокус в поле или на кнопке, клавиши принадлежат им
+            const tag = e.target?.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
+            if (tag === 'BUTTON' && (e.key === ' ' || e.key === 'Spacebar' || e.key === 'Enter')) return;
+
+            const forward = FORWARD_KEYS.has(e.key);
+            const back = BACK_KEYS.has(e.key);
+            if (!forward && !back) return;
+
+            e.preventDefault();
+            step(forward);
+        };
+
         window.addEventListener('wheel', handleWheel, { passive: false, capture: true });
         window.addEventListener('touchstart', onTouchStart, { passive: true });
         window.addEventListener('touchmove', onTouchMove, { passive: true });
         window.addEventListener('touchend', onTouchEnd, { passive: true });
+        window.addEventListener('keydown', onKeyDown);
         return () => {
             window.removeEventListener('wheel', handleWheel, { capture: true });
             window.removeEventListener('touchstart', onTouchStart);
             window.removeEventListener('touchmove', onTouchMove);
             window.removeEventListener('touchend', onTouchEnd);
+            window.removeEventListener('keydown', onKeyDown);
             if (idleTimer) clearTimeout(idleTimer);
         };
     }, []);

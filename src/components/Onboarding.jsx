@@ -17,6 +17,7 @@ const STORAGE_KEY = 'reality:onboarded';
 
 const POINTER_HINTS = [
     { gesture: 'Колесо', meaning: 'следующий слой реальности' },
+    { gesture: 'Стрелки, пробел', meaning: 'то же самое с клавиатуры' },
     { gesture: 'Зажми и веди', meaning: 'повернуть камеру' },
     { gesture: 'Клик по метке', meaning: 'фактор и его обратная сторона' },
 ];

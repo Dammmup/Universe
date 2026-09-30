@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { prefersReducedMotion } from './lib/motion';
 import { newlyCompleted } from './data/scenarios';
 import { echoesOf } from './data/consequences';
 import { MAX_STAGE, STAGE, isEarthStage, isMapStage } from './lib/stages';
@@ -145,6 +146,12 @@ export const useStore = create((set, get) => ({
     // происходит ровно в середине, под непрозрачной вуалью.
     shift: null,
     setFreeLook: (freeLook) => set({ freeLook }),
+
+    // Спокойный режим: система просит меньше движения (prefers-reduced-motion)
+    // или зритель попросил сам через ?calm=1. Переходы остаются, но короче и
+    // без разгона камеры с полосами — см. lib/motion.js
+    calm: prefersReducedMotion(),
+    setCalm: (calm) => set((state) => (state.calm === calm ? state : { calm })),
 
     /**
      * Запускает накрытие кадра. commit описывает, что сделать в середине:
