@@ -749,9 +749,12 @@ export default function Mind() {
                     const active = focusId === f.id;
                     return (
                         <group key={f.id}>
+                            {/* Зона клика по нейрону: из отрисовки убрана,
+                                лучи её по-прежнему находят — см. FactorMarker */}
                             <mesh
                                 ref={(el) => { hitRefs.current[i] = el; }}
                                 position={f.pos}
+                                visible={false}
                                 onClick={(e) => { e.stopPropagation(); setActiveFactor(f.id); setMindFocus(f.id); }}
                                 onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; }}
                                 onPointerOut={() => { document.body.style.cursor = 'auto'; }}

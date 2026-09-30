@@ -140,8 +140,12 @@ export default function FactorMarker({
                 </mesh>
             </Billboard>
 
-            {/* Зона клика: с орбиты сама метка занимает единицы пикселей */}
-            <mesh>
+            {/* Зона клика: с орбиты сама метка занимает единицы пикселей.
+                visible={false} убирает её из отрисовки, но не из лучей: три
+                проверяет видимость только при сборке списка на отрисовку, а
+                Raycaster зовёт raycast независимо от неё. Прозрачный материал
+                стоил по вызову отрисовки на каждую метку на каждом слое. */}
+            <mesh visible={false}>
                 <sphereGeometry args={[hitRadius, 8, 6]} />
                 <meshBasicMaterial transparent opacity={0} depthWrite={false} />
             </mesh>
