@@ -4,6 +4,7 @@ import { newlyCompleted } from './data/scenarios';
 import { echoesOf } from './data/consequences';
 import { MAX_STAGE, STAGE, isEarthStage, isMapStage } from './lib/stages';
 import { BODY_LAYER_COUNT } from './data/bodyLayers';
+import { DEFAULT_MIND_SYSTEM, systemOfFactor } from './data/mind';
 
 // Слои пути и их порядок — в lib/stages.js. Мезо-уровень — три слоя одной
 // планеты: общие процессы Земли, природные локации и города.
@@ -44,6 +45,7 @@ const enterStage = (stage, state, extra = {}) => ({
     // Тело открывается с кожи; возврат из разума — на нервы, самый глубокий подуровень
     bodyLayer: 0,
     mindFocus: null,
+    mindSystem: DEFAULT_MIND_SYSTEM,
     approachingEarth: false,
     // На Земле сначала киношный кадр, облёт включается, когда камера доехала
     freeLook: !isEarthStage(stage),
@@ -127,7 +129,19 @@ export const useStore = create((set, get) => ({
     // Нейрон, в режиме которого сейчас работает сеть «Разума» (scenes/Mind.jsx).
     // Живёт дольше карточки фактора: окно закрыто — режим остаётся.
     mindFocus: null,
-    setMindFocus: (id) => set({ mindFocus: id }),
+    setMindFocus: (id) => set((state) => {
+        // Фокус из другой системы переключает и сам фильтр: иначе выбранный
+        // нейрон остался бы единственной подписью не на своём месте
+        const system = systemOfFactor(id);
+        const mindSystem = system && system !== 'core' ? system : state.mindSystem;
+        return { mindFocus: id, mindSystem };
+    }),
+
+    // Какая система разума сейчас подписана в сети (data/mind.js). Семнадцать
+    // подписей разом не читались и смешивали уровни: фильтр показывает одну
+    // систему — познание, чувства, волю или состояния.
+    mindSystem: DEFAULT_MIND_SYSTEM,
+    setMindSystem: (id) => set({ mindSystem: id }),
 
     /** Клик по мозгу: сквозь него — в сеть нейронов. */
     enterMind: () => {

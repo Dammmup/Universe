@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
 import { profileFor, sound } from '../lib/audio';
+import { music } from '../lib/music';
 import { STAGE } from '../lib/stages';
 import { CITY_LOCATIONS } from '../data/locations';
 import { scenarioById } from '../data/scenarios';
@@ -21,7 +22,9 @@ function readEnabled() {
  */
 export function SoundController() {
     useEffect(() => {
-        sound.setEnabled(readEnabled());
+        const on = readEnabled();
+        sound.setEnabled(on);
+        music.setEnabled(on);
         // Браузер разрешает звук только после жеста зрителя
         const unlock = () => sound.unlock();
         const events = ['pointerdown', 'wheel', 'touchstart', 'keydown'];
@@ -47,6 +50,13 @@ export function SoundController() {
             if (state.reversedFactors !== prev.reversedFactors && prev.activeFactorId) {
                 sound.toggle(!!state.reversedFactors[prev.activeFactorId]);
             }
+            // Музыка нейрона: клик по нейрону меняет mindFocus, уход со слоя
+            // её снимает — трек звучит только внутри разума
+            if (state.stage !== STAGE.MIND) {
+                if (prev.stage === STAGE.MIND) music.stop();
+            } else if (state.mindFocus !== prev.mindFocus) {
+                music.play(state.mindFocus);
+            }
             if (state.shift && !prev.shift) sound.whoosh();
             if (state.scenarioQueue.length > prev.scenarioQueue.length) {
                 sound.scenario(scenarioById(state.scenarioQueue[state.scenarioQueue.length - 1])?.kind);
@@ -56,6 +66,7 @@ export function SoundController() {
 
         return () => {
             unsubscribe();
+            music.stop();
             events.forEach((e) => window.removeEventListener(e, unlock));
         };
     }, []);
@@ -70,6 +81,7 @@ export function SoundToggle({ light = false }) {
         setOn(next);
         sound.unlock();
         sound.setEnabled(next);
+        music.setEnabled(next);
         try {
             localStorage.setItem(STORAGE_KEY, next ? '1' : '0');
         } catch {

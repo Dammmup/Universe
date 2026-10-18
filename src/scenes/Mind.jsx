@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { useStore } from '../store';
 import { FACTORS_DATA } from '../data/factors';
 import { withEchoes } from '../data/consequences';
-import { FACTOR_NEURONS } from '../data/mind';
+import { FACTOR_NEURONS, visibleNeurons } from '../data/mind';
 import { seededRandom } from '../lib/geo';
 import { circleSprite } from '../lib/sprites';
 
@@ -258,6 +258,11 @@ export default function Mind() {
     // выбранного нейрона, пока не выбран другой
     const focusId = useStore((s) => s.mindFocus);
     const setMindFocus = useStore((s) => s.setMindFocus);
+    // Подписаны нейроны одной системы: семнадцать разом не читались и ставили
+    // рядом разные уровни — «Эмоцию» с её же гневом. Фильтр — в MindPanel.
+    const system = useStore((s) => s.mindSystem);
+    const labelled = useMemo(() => visibleNeurons(system, focusId), [system, focusId]);
+    const labelledIds = useMemo(() => new Set(labelled.map((f) => f.id)), [labelled]);
     const focusIndex = focusId ? FACTOR_IDS.indexOf(focusId) : -1;
     const mode = focusId ? modeFor(focusId, !!reversed[focusId]) : MODES.idle;
 
@@ -592,9 +597,12 @@ export default function Mind() {
         const breathe = P.breathe * (0.5 + 0.5 * Math.sin(t * 0.9));
         net.nodes.forEach((node, i) => {
             const isFactor = !!node.factor;
+            // Нейрон чужой системы остаётся в сети, но держится как рядовой:
+            // так фильтр видно в кадре, а не только по подписям
+            const named = isFactor && labelledIds.has(node.factor);
             const faded = P.fade * (i % 3 === 0 ? 1 : 0);
             tmp.position.copy(sim.pos[i]);
-            const s = (isFactor ? 0.17 : 0.085) * (1 + sim.bump[i] * 0.35 + (m.pulse ? 0.1 * Math.sin(t * 6) : 0)) * (1 - faded * 0.6);
+            const s = (named ? 0.17 : isFactor ? 0.115 : 0.085) * (1 + sim.bump[i] * 0.35 + (m.pulse ? 0.1 * Math.sin(t * 6) : 0)) * (1 - faded * 0.6);
             tmp.scale.setScalar(s);
             tmp.updateMatrix();
             soma?.setMatrixAt(i, tmp.matrix);
@@ -603,7 +611,7 @@ export default function Mind() {
             if (i === focusIndex) c.multiplyScalar(1.6);
             soma?.setColorAt(i, c);
 
-            if (isFactor) {
+            if (named) {
                 const label = labelRefs.current[FACTOR_IDS.indexOf(node.factor)];
                 if (label) label.position.set(sim.pos[i].x, sim.pos[i].y - 0.42, sim.pos[i].z);
                 const hit = hitRefs.current[FACTOR_IDS.indexOf(node.factor)];
@@ -743,7 +751,10 @@ export default function Mind() {
                     <meshBasicMaterial toneMapped={false} />
                 </instancedMesh>
 
-                {FACTOR_NEURONS.map((f, i) => {
+                {labelled.map((f) => {
+                    // Ключ рефов — место в полном списке: движок ищет подпись
+                    // по индексу узла сети, а не по порядку отрисовки
+                    const i = FACTOR_IDS.indexOf(f.id);
                     const factor = FACTORS_DATA[f.id];
                     const isRev = !!reversed[f.id];
                     const active = focusId === f.id;

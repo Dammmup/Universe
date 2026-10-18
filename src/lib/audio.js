@@ -40,6 +40,27 @@ class SoundEngine {
         this.layer = null;
         this.eventTimer = null;
         this.mood = { heart: 64, crackle: 6, tint: 0 };
+        // Эмбиент приседает, пока играет музыка нейрона (lib/music.js)
+        this.duck = 1;
+    }
+
+    /** Громкость шины с учётом выключателя и приседания под музыку. */
+    targetGain() {
+        return this.enabled ? 0.9 * this.duck : 0;
+    }
+
+    rampMaster(seconds) {
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+        this.master.gain.cancelScheduledValues(t);
+        this.master.gain.setTargetAtTime(this.targetGain(), t, seconds);
+    }
+
+    /** 1 — полная громкость, меньше — приседание под музыку нейрона. */
+    setDuck(level) {
+        if (level === this.duck) return;
+        this.duck = level;
+        this.rampMaster(0.5);
     }
 
     /** Создаёт контекст на первом жесте пользователя. */
@@ -52,7 +73,7 @@ class SoundEngine {
         if (!Ctx) return;
         this.ctx = new Ctx();
         this.master = this.ctx.createGain();
-        this.master.gain.value = this.enabled ? 0.9 : 0;
+        this.master.gain.value = this.targetGain();
         // Мягкий компрессор: эффекты поверх эмбиента не щёлкают
         const comp = this.ctx.createDynamicsCompressor();
         comp.threshold.value = -18;
@@ -82,10 +103,7 @@ class SoundEngine {
 
     setEnabled(on) {
         this.enabled = on;
-        if (!this.ctx) return;
-        const t = this.ctx.currentTime;
-        this.master.gain.cancelScheduledValues(t);
-        this.master.gain.setTargetAtTime(on ? 0.9 : 0, t, 0.3);
+        this.rampMaster(0.3);
     }
 
     /** Настроение текущего слоя: частота сердца, частота щелчков разума. */
