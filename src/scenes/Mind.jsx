@@ -58,7 +58,7 @@ const MODES = {
     attention: [
         // Поток: много импульсов по нескольким маршрутам от А к Б, выходят
         // разом и приходят разом — путь любой длины занимает одно и то же время
-        { color: '#3fb0ff', bg: '#020a1a', rate: 4, transit: 2.2, pattern: 'route', motion: 'steady', size: [0.85, 0.85], dim: 0.6, still: 0.85, heat: [1.1, 0.6], bump: 0.35, beacon: 1, trail: 10 },
+        { color: '#3fb0ff', bg: '#020a1a', rate: 0.75, transit: 3.2, pattern: 'route', motion: 'steady', size: [0.85, 0.85], dim: 0.6, still: 0.85, heat: [1.1, 0.6], bump: 0.35, beacon: 1, trail: 10 },
         // Расфокус: импульсы бродят по случайным соседям и никуда не приходят
         { color: '#a08cc0', bg: '#0a0810', rate: 6, speed: 0.9, pattern: 'wander', motion: 'drift', size: [0.4, 0.9], drift: 0.6 },
     ],
@@ -126,9 +126,9 @@ const MODES = {
 
     motivation: [
         // Мотивация: бегун к дальней цели разгоняется с каждым перегоном
-        { color: '#ffb03a', bg: '#140a02', rate: 1.1, hop: 0.42, pattern: 'goal', motion: 'accel', size: [1, 1.3], beacon: 1, trail: 6 },
+        { color: '#ffb03a', bg: '#140a02', rate: 0.6, hop: 0.85, pattern: 'goal', motion: 'accel', size: [1, 1.3], beacon: 1, trail: 6 },
         // Апатия: тот же путь, но бегун замедляется и встаёт на полдороге
-        { color: '#8a8070', bg: '#060504', rate: 1, hop: 0.42, pattern: 'goal', motion: 'decel', size: [0.9, 1.1], dim: 0.5 },
+        { color: '#8a8070', bg: '#060504', rate: 0.6, hop: 0.85, pattern: 'goal', motion: 'decel', size: [0.9, 1.1], dim: 0.5 },
     ],
     curiosity: [
         // Любопытство: прорастает новыми связями к незнакомым нейронам
@@ -151,7 +151,7 @@ const MODES = {
     ],
     stress: [
         // Стресс: мелкая дрожь сигналов, нейроны темнеют и отпадают
-        { color: '#ff7a2a', bg: '#1a0802', shake: 0.035, rate: 10, speed: 2.4, pattern: 'random', motion: 'jitter', size: [0.4, 0.8], decay: 1 },
+        { color: '#ff7a2a', bg: '#1a0802', shake: 0.006, rate: 5, speed: 1.6, pattern: 'random', motion: 'jitter', size: [0.4, 0.8], decay: 1 },
         // Восстановление: упавшие нейроны поднимаются на места, сеть дышит
         { color: '#4fe0c8', bg: '#021210', rate: 0.6, speed: 0.6, pattern: 'pulse', motion: 'steady', size: [0.9, 1.2], regrow: 1, breathe: 1 },
     ],
@@ -338,7 +338,11 @@ function farthest(net, src) {
  * в обход внутренних нейронов уже найденных, так маршруты идут параллельно.
  */
 function parallelRoutes(net, src, target, count) {
-    const banned = new Set();
+    // Запрещены уже занятые аксоны, а не нейроны: при запрете нейронов
+    // маршрутов находилось два-три (столько соседей у А), и в потоке
+    // участвовала горстка клеток. Рёбра разные — путей больше и шире.
+    const key = (a, b) => (a < b ? `${a}:${b}` : `${b}:${a}`);
+    const banned = new Set([key(src, target)]);
     const routes = [];
     for (let k = 0; k < count; k += 1) {
         const prev = new Array(net.nodes.length).fill(-1);
@@ -348,9 +352,7 @@ function parallelRoutes(net, src, target, count) {
             const v = queue.shift();
             if (v === target) break;
             net.neighbors[v].forEach(({ to }) => {
-                if (seen.has(to) || banned.has(to)) return;
-                // Прямой перескок от А к Б не маршрут — так «состав» не виден
-                if (v === src && to === target) return;
+                if (seen.has(to) || banned.has(key(v, to))) return;
                 seen.add(to);
                 prev[to] = v;
                 queue.push(to);
@@ -359,7 +361,11 @@ function parallelRoutes(net, src, target, count) {
         if (prev[target] < 0) break;
         const path = [];
         for (let v = target; v !== -1; v = prev[v]) path.unshift(v);
-        path.slice(1, -1).forEach((v) => banned.add(v));
+        // Аксоны у самих А и Б общие: у нейрона бывает всего три связи, и
+        // запрет на них оставлял три маршрута. Так поток веером расходится
+        // от А по разным путям и снова сходится в Б.
+        for (let i = 1; i < path.length - 2; i += 1) banned.add(key(path[i], path[i + 1]));
+        if (path.length <= 3) banned.add(key(path[0], path[1]));
         routes.push(path);
     }
     return routes.length ? routes : [bfsPath(net, src, target)];
@@ -437,7 +443,9 @@ const GONE = 3;
 
 const UP = new THREE.Vector3(0, 1, 0);
 /** Цвет обугленного нейрона: стресс выжигает, восстановление начинает с него. */
-const ASH = new THREE.Color(0.2, 0.11, 0.08);
+// Пепельно-серый: тёмно-бурый на тёмном фоне читался как исчезновение,
+// а не как то, что нейрон посерел
+const ASH = new THREE.Color(0.46, 0.46, 0.5);
 const V1 = new THREE.Vector3();
 const V2 = new THREE.Vector3();
 
@@ -524,7 +532,7 @@ export default function Mind() {
         sim.impulses.forEach((imp) => { imp.last = true; });
         sim.goal = m.pattern === 'goal' || m.pattern === 'route' ? farthest(net, src) : -1;
         sim.route = sim.goal >= 0 ? bfsPath(net, src, sim.goal) : null;
-        sim.routes = m.pattern === 'route' && sim.goal >= 0 ? parallelRoutes(net, src, sim.goal, 6) : null;
+        sim.routes = m.pattern === 'route' && sim.goal >= 0 ? parallelRoutes(net, src, sim.goal, 10) : null;
         sim.parents = m.pattern === 'converge' ? bfsParents(net, m.root === 'center' ? 0 : src) : null;
         sim.cycle = m.pattern === 'loop' ? smallCycle(net, src) : null;
         sim.partner = -1;
@@ -581,7 +589,8 @@ export default function Mind() {
         const { health, fall, fallV } = sim;
         if (m.decay) {
             sim.decayTimer += dt;
-            if (sim.decayTimer > 0.55) {
+            // Раз в секунду, а не дважды: каждое падение успевают увидеть
+            if (sim.decayTimer > 1.1) {
                 sim.decayTimer = 0;
                 let gone = 0;
                 for (let i = 0; i < NEURON_COUNT; i += 1) if (sim.state[i] !== ALIVE) gone += 1;
@@ -601,15 +610,16 @@ export default function Mind() {
             switch (sim.state[i]) {
                 case DYING:
                     // Темнеет: сигнал в нём ещё теплится, но всё слабее
-                    health[i] = Math.max(0.12, health[i] - dt / 1.6);
+                    health[i] = Math.max(0.12, health[i] - dt / 2.4);
                     if (health[i] <= 0.12) { sim.state[i] = FALLING; fallV[i] = 0; spawnAsh(sim, sim.pos[i]); }
                     break;
                 case FALLING:
                     // Оторвался и падает, догорая
-                    fallV[i] += dt * 3.2;
+                    // Падает медленнее и остаётся серым почти до самого низа
+                    fallV[i] += dt * 1.8;
                     fall[i] -= fallV[i] * dt;
-                    health[i] = 0.12 * clamp01(1 + fall[i] / 5);
-                    if (fall[i] < -6) sim.state[i] = GONE;
+                    health[i] = 0.12 * clamp01(1 + fall[i] / 8);
+                    if (fall[i] < -8) sim.state[i] = GONE;
                     break;
                 case GONE:
                     health[i] = 0;
@@ -667,6 +677,11 @@ export default function Mind() {
         }
         // Мотивация: цель горит маяком
         if (m.beacon && sim.goal >= 0) sim.glow[sim.goal] = Math.max(sim.glow[sim.goal], 0.6 + 0.4 * Math.sin(t * 4));
+        // Поток: все нейроны маршрутов подсвечены — видно, сколько их
+        // включено в передачу от А к Б, а не только бегущие точки
+        if (m.pattern === 'route' && sim.routes) {
+            sim.routes.forEach((path) => path.forEach((v) => { sim.glow[v] = Math.max(sim.glow[v], 0.35); }));
+        }
 
         // ─── Запуск импульсов ─────────────────────────────────────────────
         const alloc = () => {
@@ -1007,7 +1022,7 @@ export default function Mind() {
                         break;
                     case 'accel': {
                         const prog = imp.path ? (imp.k + imp.t) / (imp.path.length - 1) : imp.t;
-                        imp.t += base * (0.35 + 2.6 * prog * prog);
+                        imp.t += base * (0.55 + 1.1 * prog * prog);
                         break;
                     }
                     case 'decel': {
@@ -1132,7 +1147,10 @@ export default function Mind() {
             const faded = P.fade * (i % 3 === 0 ? 1 : 0);
             const life = health[i];
             tmp.position.copy(sim.pos[i]);
-            const s = (named ? 0.17 : isFactor ? 0.115 : 0.085) * (1 + sim.bump[i] * 0.35) * (1 - faded * 0.6) * (0.4 + 0.6 * Math.min(1, life * 1.4));
+            // Умирающий нейрон не сжимается в точку: серый шар полного размера
+            // заметен и когда темнеет, и пока падает
+            const dying = sim.state[i] === DYING || sim.state[i] === FALLING;
+            const s = (named ? 0.17 : isFactor ? 0.115 : 0.085) * (1 + sim.bump[i] * 0.35) * (1 - faded * 0.6) * (dying ? 1.15 : 0.4 + 0.6 * Math.min(1, life * 1.4));
             tmp.scale.setScalar(sim.state[i] === GONE ? 0 : s);
             tmp.updateMatrix();
             soma?.setMatrixAt(i, tmp.matrix);
@@ -1143,13 +1161,14 @@ export default function Mind() {
             // фоне иначе он бы исчез, а не потемнел у зрителя на глазах
             if (life < 0.995) {
                 c.lerp(ASH, 1 - clamp01((life - 0.12) / 0.88));
-                if (sim.state[i] === FALLING) c.multiplyScalar(clamp01(1 + fall[i] / 6));
+                if (sim.state[i] === FALLING) c.multiplyScalar(clamp01(1.3 + fall[i] / 8));
             }
             soma?.setColorAt(i, c);
 
             hp[i * 3] = sim.pos[i].x; hp[i * 3 + 1] = sim.pos[i].y; hp[i * 3 + 2] = sim.pos[i].z;
             const lum = (isFactor ? 0.4 : 0.2) + sim.glow[i] * 0.6 + breathe * 0.3 - P.dim * 0.15;
             c.copy(sim.color).multiplyScalar(Math.max(0.04, lum) * life);
+            if (dying) c.copy(ASH).multiplyScalar(0.35 * clamp01(1.3 + fall[i] / 8));
             hc[i * 3] = c.r; hc[i * 3 + 1] = c.g; hc[i * 3 + 2] = c.b;
             hs[i] = (named ? 0.95 : isFactor ? 0.7 : 0.5) * (0.85 + sim.glow[i] * 0.35);
 

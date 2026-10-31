@@ -47,8 +47,10 @@ const enterStage = (stage, state, extra = {}) => ({
     mindFocus: null,
     mindSystem: DEFAULT_MIND_SYSTEM,
     approachingEarth: false,
-    // На Земле сначала киношный кадр, облёт включается, когда камера доехала
-    freeLook: !isEarthStage(stage),
+    // На Земле сначала киношный кадр, облёт включается, когда камера доехала.
+    // Между слоями самой Земли камера не едет — крутится глобус, — и включить
+    // облёт обратно было некому: на природе и в городах шар не вращался.
+    freeLook: !isEarthStage(stage) || (isEarthStage(state.stage) && !state.location ? state.freeLook : false),
     ...extra,
 });
 
