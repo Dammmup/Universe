@@ -211,11 +211,11 @@ void main() {
     vec3 V = normalize(cameraPosition - vPosW);
 
     // Френель: свечение собирается по краю диска планеты
-    float rim = pow(1.0 - abs(dot(N, V)), uPower);
+    float rim = pow(max(0.0, 1.0 - abs(dot(N, V))), uPower);
     float sun = max(dot(N, uSunDir), 0.0);
 
     // На линии терминатора рассеяние краснеет, как настоящий закат
-    float sunset = pow(1.0 - abs(dot(N, uSunDir)), 6.0);
+    float sunset = pow(max(0.0, 1.0 - abs(dot(N, uSunDir))), 6.0);
     vec3 color = mix(uColor, uSunsetColor, sunset * 0.75);
 
     float glow = rim * (0.18 + sun * 1.05) * uIntensity;

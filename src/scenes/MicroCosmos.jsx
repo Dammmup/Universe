@@ -400,7 +400,7 @@ varying vec3 vNormalV;
 varying vec3 vViewV;
 void main() {
     float facing = abs(dot(normalize(vNormalV), normalize(vViewV)));
-    float rim = pow(1.0 - facing, 2.2);
+    float rim = pow(max(0.0, 1.0 - facing), 2.2);
     // Кристы — волнистые перегородки поперёк длинной оси
     float y = vLocal.y * 9.0 + sin(vLocal.x * 14.0 + uSeed) * 0.55 + sin(vLocal.z * 11.0) * 0.35;
     float fold = 1.0 - abs(fract(y) - 0.5) * 2.0;

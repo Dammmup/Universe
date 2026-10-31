@@ -179,7 +179,7 @@ varying vec3 vWorld;
 void main() {
     vec3 n = normalize(vNormalW);
     vec3 v = normalize(cameraPosition - vWorld);
-    float rim = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), uPower);
+    float rim = pow(max(0.0, 1.0 - clamp(dot(n, v), 0.0, 1.0)), uPower);
     vec3 l = normalize(-vWorld);
     float day = mix(1.0, smoothstep(-0.35, 0.45, dot(n, l)), uSunlit);
     gl_FragColor = vec4(uColor * rim * day * uIntensity, 1.0);
@@ -250,7 +250,7 @@ void main() {
     vec3 up = normalize(cross(axis, uSide));
     float spread = (aSeed.w > 0.5 ? 0.06 : 0.3) + t * (aSeed.w > 0.5 ? 0.45 : 1.7);
     vec3 p = uHead + axis * t * len + (uSide * aSeed.y + up * aSeed.z) * spread;
-    vAlpha = pow(1.0 - t, 1.6) * smoothstep(0.0, 0.03, t);
+    vAlpha = pow(max(0.0, 1.0 - t), 1.6) * smoothstep(0.0, 0.03, t);
     vKind = aSeed.w;
     vec4 mv = viewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
