@@ -80,6 +80,9 @@ export default function PostFX({
     bloomThreshold = 0.85,
     vignette = 0.44,
     samples = 4,
+    // Доля «оптики» — зерна и расхождения каналов. На маленьком экране с
+    // высокой плотностью пикселей они не читаются как плёнка, а мылят кадр.
+    film: filmAmount = 1,
 }) {
     const gl = useThree((s) => s.gl);
     const scene = useThree((s) => s.scene);
@@ -154,7 +157,7 @@ export default function PostFX({
 
     useEffect(() => {
         if (!composer) return;
-        composer.setPixelRatio(Math.min(gl.getPixelRatio(), 1.75));
+        composer.setPixelRatio(Math.min(gl.getPixelRatio(), 2));
         composer.setSize(size.width, size.height);
     }, [composer, gl, size]);
 
@@ -164,6 +167,8 @@ export default function PostFX({
         const film = composer.filmPass;
         if (film) {
             film.uniforms.uTime.value = state.clock.elapsedTime;
+            film.uniforms.uGrain.value = 0.028 * filmAmount;
+            film.uniforms.uAberration.value = 0.0016 * filmAmount;
             // Виньетку ведём плавно: на светлом слое затемнение по краям
             // читается кольцом, и мгновенное переключение бросается в глаза
             const v = film.uniforms.uVignette;

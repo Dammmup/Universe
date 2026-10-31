@@ -92,6 +92,13 @@ function RendererGuard() {
  * Фон сцены меняется не переключателем, а плавным переходом цвета: иначе
  * чёрный микромир и белый антропо-уровень стыкуются вспышкой на один кадр.
  */
+/** Обработчик касаний живёт вне холста, а управление камерой — внутри. */
+function ControlsBridge({ target }) {
+    const controls = useThree((s) => s.controls);
+    useEffect(() => { target.current = controls; }, [controls, target]);
+    return null;
+}
+
 function SceneBackground() {
     const stage = useStore((s) => s.stage);
     const location = useStore((s) => s.location);
@@ -434,9 +441,20 @@ export default function App() {
     ));
     const lowQuality = quality === 'low';
 
-    const [isTouch] = useState(() => (typeof window === 'undefined'
+    // Следим за сменой, а не читаем один раз: в адаптивном режиме браузера
+    // устройство переключают без перезагрузки, и сцена оставалась с
+    // настольным управлением на сенсорном экране
+    const [isTouch, setIsTouch] = useState(() => (typeof window === 'undefined'
         ? false
         : (window.matchMedia?.('(pointer: coarse)').matches ?? 'ontouchstart' in window)));
+    useEffect(() => {
+        const mq = window.matchMedia?.('(pointer: coarse)');
+        if (!mq) return undefined;
+        const onChange = () => setIsTouch(mq.matches);
+        mq.addEventListener('change', onChange);
+        return () => mq.removeEventListener('change', onChange);
+    }, []);
+    const controlsRef = useRef(null);
 
     const shifting = !!shift;
     const activePlace = locationById(location);
@@ -562,45 +580,75 @@ export default function App() {
         };
 
         // ─── Касания ──────────────────────────────────────────────────────
-        // На телефоне колеса нет, и без этого пройти путь было невозможно:
-        // зритель застревал на первом же слое. Одним пальцем — шаг по пути,
-        // двумя — облёт и зум (OrbitControls, см. проп touches).
+        // Один палец: вбок — вращать сцену (Землю, тело, сеть), вверх-вниз —
+        // шаг по пути. Направление решается один раз, на первых 12 пикселях,
+        // и до конца жеста не меняется: раньше оно оценивалось только по
+        // итогу, и косой жест «вбок» листал слой, а вращать одним пальцем
+        // было нельзя вовсе. Два пальца — полный облёт и зум.
         let touch = null;
 
+        /** Вернуть управлению камеры всё, что жест у него забрал. */
+        const release = () => {
+            const c = controlsRef.current;
+            const saved = touch?.saved;
+            if (c && saved) {
+                c.minPolarAngle = saved.min;
+                c.maxPolarAngle = saved.max;
+                c.enableRotate = saved.rotate;
+            }
+        };
+
         const onTouchStart = (e) => {
-            // Жест по кнопке интерфейса навигацией не считается
+            // Второй палец: жест становится облётом, ограничения снимаются
             if (e.touches.length !== 1 || e.target?.closest?.('button')) {
+                release();
                 touch = null;
                 return;
             }
             const point = e.touches[0];
-            touch = { x: point.clientX, y: point.clientY, at: performance.now(), moved: false };
+            touch = { x: point.clientX, y: point.clientY, at: performance.now(), dir: null, saved: null };
+            // Одним пальцем камера крутится только вокруг вертикали: наклон
+            // достался бы и свайпу по пути, и слой листался бы с рывком кадра
+            const c = controlsRef.current;
+            if (c) {
+                touch.saved = { min: c.minPolarAngle, max: c.maxPolarAngle, rotate: c.enableRotate };
+                const polar = c.getPolarAngle();
+                c.minPolarAngle = polar;
+                c.maxPolarAngle = polar;
+            }
         };
 
         const onTouchMove = (e) => {
-            if (!touch || e.touches.length !== 1) return;
+            if (!touch || e.touches.length !== 1 || touch.dir) return;
             const point = e.touches[0];
-            if (Math.abs(point.clientY - touch.y) > 12 || Math.abs(point.clientX - touch.x) > 12) {
-                touch.moved = true;
-            }
+            const dx = point.clientX - touch.x;
+            const dy = point.clientY - touch.y;
+            if (Math.hypot(dx, dy) < 12) return;
+            touch.dir = Math.abs(dy) > Math.abs(dx) * 1.3 ? 'v' : 'h';
+            // Свайп по пути сцену не вертит
+            if (touch.dir === 'v' && controlsRef.current) controlsRef.current.enableRotate = false;
         };
 
         const onTouchEnd = (e) => {
             const start = touch;
+            release();
             touch = null;
-            // Касание без движения — это тап по фактору, а не свайп
-            if (!start || !start.moved) return;
+            // Касание без движения — тап по фактору; жест вбок — вращение
+            if (!start || start.dir !== 'v') return;
 
             const point = e.changedTouches[0];
             const dy = point.clientY - start.y;
-            const dx = point.clientX - start.x;
             const elapsed = performance.now() - start.at;
 
-            // Вертикальный и решительный: медленное поперечное ведение —
-            // это разглядывание сцены, а не переход на следующий слой
-            if (Math.abs(dy) < 70 || Math.abs(dy) < Math.abs(dx) * 1.4 || elapsed > 900) return;
+            // Решительный: медленное ведение пальцем — это разглядывание
+            if (Math.abs(dy) < 60 || elapsed > 900) return;
 
             step(dy < 0);
+        };
+
+        const onTouchCancel = () => {
+            release();
+            touch = null;
         };
 
         // ─── Клавиатура ───────────────────────────────────────────────────
@@ -631,12 +679,14 @@ export default function App() {
         window.addEventListener('touchstart', onTouchStart, { passive: true });
         window.addEventListener('touchmove', onTouchMove, { passive: true });
         window.addEventListener('touchend', onTouchEnd, { passive: true });
+        window.addEventListener('touchcancel', onTouchCancel, { passive: true });
         window.addEventListener('keydown', onKeyDown);
         return () => {
             window.removeEventListener('wheel', handleWheel, { capture: true });
             window.removeEventListener('touchstart', onTouchStart);
             window.removeEventListener('touchmove', onTouchMove);
             window.removeEventListener('touchend', onTouchEnd);
+            window.removeEventListener('touchcancel', onTouchCancel);
             window.removeEventListener('keydown', onKeyDown);
             if (idleTimer) clearTimeout(idleTimer);
         };
@@ -652,7 +702,11 @@ export default function App() {
                        объявлен устаревшим — берём обычный PCF */
                     shadows={lowQuality ? false : 'percentage'}
                     camera={{ position: [0, 0, 5], fov: 60, near: 0.1, far: 1400 }}
-                    dpr={lowQuality ? [0.75, 1] : [1, 1.75]}
+                    /* Ниже одного пикселя на точку экрана картинка
+                       мылилась: монитор производительности на телефоне
+                       почти всегда уводил в низкое качество, а там было 0.75.
+                       Экономим на свечении и тенях, а не на резкости. */
+                    dpr={lowQuality ? [1, 1.5] : [1, 2]}
                     /* Сглаживает композер (PostFX, samples): MSAA холста при
                        постобработке достаётся только финальному кваду */
                     gl={{ antialias: false, powerPreference: 'high-performance', stencil: false }}
@@ -661,6 +715,7 @@ export default function App() {
                     onPointerMissed={onPointerMissed}
                 >
                     <RendererGuard />
+                    <ControlsBridge target={controlsRef} />
                     <SceneBackground />
                     <JourneyCamera />
 
@@ -678,7 +733,7 @@ export default function App() {
                             maxDistance={110}
                             maxPolarAngle={Math.PI * 0.46}
                             touches={isTouch
-                                ? { ONE: THREE.TOUCH.NONE, TWO: THREE.TOUCH.DOLLY_ROTATE }
+                                ? { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE }
                                 : { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
                             dampingFactor={0.08}
                             enableDamping
@@ -697,10 +752,10 @@ export default function App() {
                             zoomSpeed={stage === CELL_STAGE ? 1.05 : (isEarthStage(stage) ? 0.75 : 0.6)}
                             minDistance={isEarthStage(stage) ? 18 : stage === CELL_STAGE ? 1.4 : (stage === HUMAN_STAGE ? 1.6 : (stage === MIND_STAGE ? 3 : 5))}
                             maxDistance={isEarthStage(stage) ? 90 : stage === CELL_STAGE ? 80 : (stage === HUMAN_STAGE ? 26 : (stage === MIND_STAGE ? 40 : 200))}
-                            /* Один палец отдан навигации по пути, иначе свайп
-                               одновременно листал бы слой и крутил камеру */
+                            /* Один палец: вбок — облёт, вверх-вниз — путь
+                               (жесты разводит обработчик касаний) */
                             touches={isTouch
-                                ? { ONE: THREE.TOUCH.NONE, TWO: THREE.TOUCH.DOLLY_ROTATE }
+                                ? { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE }
                                 : { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
                             dampingFactor={0.08}
                             enableDamping
@@ -742,6 +797,7 @@ export default function App() {
                         bloomThreshold={stage === HUMAN_STAGE ? 1.15 : (location ? 0.95 : 0.85)}
                         vignette={stage === HUMAN_STAGE ? 0.16 : (location ? 0.36 : 0.44)}
                         samples={lowQuality ? 0 : 4}
+                        film={isTouch ? 0.35 : 1}
                     />
 
                 </Canvas>
@@ -800,7 +856,7 @@ export default function App() {
                 {stage === STAGE.COSMOS && (
                     <div className="text-white/70 animate-fade-in relative z-50">
                         <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2">Макрокосмос</p>
-                        <p className="text-xs text-white/50">{isTouch ? 'Двумя пальцами — облёт, касание — объект. Свайп дальше.' : 'Вращай камеру, кликай на объекты. Скролль дальше.'}</p>
+                        <p className="text-xs text-white/50">{isTouch ? 'Палец вбок — облёт, касание — объект. Свайп вверх — дальше.' : 'Вращай камеру, кликай на объекты. Скролль дальше.'}</p>
                     </div>
                 )}
                 {stage === STAGE.PLANET && approachingEarth && (
