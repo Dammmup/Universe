@@ -373,6 +373,50 @@ function beanGeometry() {
     return new THREE.LatheGeometry(pts, 28);
 }
 
+const mitoVertex = /* glsl */ `
+varying vec3 vLocal;
+varying vec3 vNormalV;
+varying vec3 vViewV;
+void main() {
+    vLocal = position;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vNormalV = normalize(normalMatrix * normal);
+    vViewV = normalize(-mv.xyz);
+    gl_Position = projectionMatrix * mv;
+}
+`;
+
+/**
+ * Митохондрия: полупрозрачная двойная мембрана, внутри — складки крист,
+ * по которым бежит волна синтеза АТФ. Прежде это была сплошная оранжевая
+ * капля с пятью кольцами поверх — читалась кляксой, а не органеллой.
+ */
+const mitoFragment = /* glsl */ `
+uniform float uTime;
+uniform float uLife;
+uniform float uSeed;
+varying vec3 vLocal;
+varying vec3 vNormalV;
+varying vec3 vViewV;
+void main() {
+    float facing = abs(dot(normalize(vNormalV), normalize(vViewV)));
+    float rim = pow(1.0 - facing, 2.2);
+    // Кристы — волнистые перегородки поперёк длинной оси
+    float y = vLocal.y * 9.0 + sin(vLocal.x * 14.0 + uSeed) * 0.55 + sin(vLocal.z * 11.0) * 0.35;
+    float fold = 1.0 - abs(fract(y) - 0.5) * 2.0;
+    // В угасшей клетке кристы рвутся и тускнеют
+    float broken = mix(1.0, step(0.45, fract(sin(floor(y) * 91.7 + uSeed) * 437.5)), 1.0 - uLife);
+    float cristae = smoothstep(0.72, 0.95, fold) * facing * broken;
+    float wave = exp(-pow(fract(vLocal.y * 0.6 - uTime * 0.35 + uSeed) - 0.5, 2.0) * 40.0) * uLife;
+
+    vec3 matrix = mix(vec3(0.32, 0.22, 0.12), vec3(1.0, 0.38, 0.06), uLife);
+    vec3 ridge = mix(vec3(0.6, 0.52, 0.38), vec3(1.0, 0.66, 0.26), uLife);
+    vec3 col = matrix * (0.5 + 0.45 * facing) + ridge * cristae * (0.65 + wave * 1.6) + vec3(1.0, 0.7, 0.4) * rim * (0.5 + uLife * 0.6);
+    float alpha = clamp(0.45 + cristae * 0.4 + rim * 0.5, 0.0, 1.0);
+    gl_FragColor = vec4(col, alpha);
+}
+`;
+
 function Mitochondria({ reversed }) {
     const group = useRef();
     const geom = useMemo(() => beanGeometry(), []);
@@ -383,13 +427,22 @@ function Mitochondria({ reversed }) {
         { pos: [2.35, 1.05, -0.55], rot: [-0.3, -0.4, 0.5], scale: 0.82 },
         { pos: [1.85, -1.55, 0.7], rot: [0.5, 0.2, 0.3], scale: 0.7 },
     ]), []);
+    const uniforms = useMemo(() => items.map((_, i) => ({
+        uTime: { value: 0 },
+        uLife: { value: 1 },
+        uSeed: { value: i * 2.3 + 0.7 },
+    })), [items]);
 
     useFrame((state, delta) => {
         if (!group.current) return;
+        const t = state.clock.elapsedTime;
         group.current.children.forEach((child, i) => {
             child.rotation.z += delta * (reversed ? 0.05 : 0.18) * (i % 2 ? -1 : 1);
-            const s = items[i].scale * (1 + Math.sin(state.clock.elapsedTime * 2.1 + i) * (reversed ? 0.02 : 0.06));
+            const s = items[i].scale * (1 + Math.sin(t * 2.1 + i) * (reversed ? 0.02 : 0.06));
             child.scale.setScalar(s);
+            const u = uniforms[i];
+            u.uTime.value = t;
+            u.uLife.value = THREE.MathUtils.damp(u.uLife.value, reversed ? 0 : 1, 1.5, delta);
         });
     });
 
@@ -399,31 +452,88 @@ function Mitochondria({ reversed }) {
                 {items.map((item, i) => (
                     <group key={i} position={item.pos} rotation={item.rot}>
                         <mesh geometry={geom}>
-                            <meshStandardMaterial
-                                color={reversed ? '#5f4f32' : '#e8942a'}
-                                emissive={reversed ? '#151005' : '#6a3200'}
-                                emissiveIntensity={reversed ? 0.12 : 0.55}
-                                roughness={0.55}
+                            <shaderMaterial
+                                vertexShader={mitoVertex}
+                                fragmentShader={mitoFragment}
+                                uniforms={uniforms[i]}
                                 transparent
-                                opacity={0.92}
+                                depthWrite={false}
+                                side={THREE.DoubleSide}
                             />
                         </mesh>
-                        {[0, 1, 2, 3, 4].map((ridge) => (
-                            <mesh key={ridge} position={[0, -0.4 + ridge * 0.2, 0]} rotation={[Math.PI / 2, 0, 0]}>
-                                <torusGeometry args={[0.16 - Math.abs(ridge - 2) * 0.02, 0.012, 6, 18]} />
-                                <meshBasicMaterial
-                                    color={reversed ? '#8a7450' : '#ffe08a'}
-                                    transparent
-                                    opacity={0.75}
-                                />
-                            </mesh>
-                        ))}
                     </group>
                 ))}
             </group>
             <Label position={[2.35, 1.85, -0.55]} color={reversed ? '#9b8a6c' : '#ffd179'} size={0.18}>
                 {reversed ? 'ЭНЕРГЕТИЧЕСКИЙ ПРОВАЛ' : 'МИТОХОНДРИИ'}
             </Label>
+        </group>
+    );
+}
+
+/**
+ * Шероховатая эндоплазматическая сеть: волнистые мембраны, обнимающие ядро,
+ * и рибосомы на них. Без неё между ядром и мембраной клетки была пустота
+ * с редкими точками — клетка выглядела пузырём, а не фабрикой.
+ */
+function EndoplasmicReticulum({ reversed }) {
+    const groupRef = useRef();
+    const { curves, dots } = useMemo(() => {
+        const list = [];
+        const pts = [];
+        for (let k = 0; k < 4; k += 1) {
+            const base = 1.82 + k * 0.17;
+            const tilt = new THREE.Euler(0.3 + k * 0.35, k * 0.9, 0.2 - k * 0.15);
+            const curvePts = [];
+            for (let i = 0; i < 64; i += 1) {
+                const a = (i / 64) * Math.PI * 2;
+                const r = base + Math.sin(a * 7 + k * 1.3) * 0.09 + Math.sin(a * 3 - k) * 0.06;
+                const v = new THREE.Vector3(Math.cos(a) * r, Math.sin(a * 5 + k) * 0.12, Math.sin(a) * r).applyEuler(tilt);
+                curvePts.push(v);
+            }
+            const curve = new THREE.CatmullRomCurve3(curvePts, true);
+            list.push(curve);
+            for (let i = 0; i < 90; i += 1) {
+                const p = curve.getPoint(i / 90);
+                pts.push(p.x * 1.012, p.y * 1.012, p.z * 1.012);
+            }
+        }
+        return { curves: list, dots: new Float32Array(pts) };
+    }, []);
+    const tex = useMemo(() => circleSprite(), []);
+
+    useFrame((_, delta) => {
+        if (groupRef.current) groupRef.current.rotation.y += delta * (reversed ? 0.01 : 0.04);
+    });
+
+    return (
+        <group ref={groupRef} position={[-0.15, 0.15, 0]}>
+            {curves.map((curve, i) => (
+                <mesh key={i} raycast={() => null}>
+                    <tubeGeometry args={[curve, 200, 0.022, 6, true]} />
+                    <meshBasicMaterial
+                        color={reversed ? '#5a6470' : '#7fd8ff'}
+                        transparent
+                        opacity={reversed ? 0.18 : 0.32}
+                        depthWrite={false}
+                        blending={THREE.AdditiveBlending}
+                    />
+                </mesh>
+            ))}
+            <points raycast={() => null}>
+                <bufferGeometry>
+                    <bufferAttribute attach="attributes-position" args={[dots, 3]} />
+                </bufferGeometry>
+                <pointsMaterial
+                    color={reversed ? '#6a6470' : '#ffd6a0'}
+                    size={0.06}
+                    map={tex}
+                    transparent
+                    opacity={reversed ? 0.3 : 0.8}
+                    depthWrite={false}
+                    blending={THREE.AdditiveBlending}
+                />
+            </points>
         </group>
     );
 }
@@ -658,6 +768,7 @@ export default function MicroCosmos() {
             <CellMembrane reversed={membraneReversed} />
             <Nucleus reversed={dnaReversed} />
             <Mitochondria reversed={mitoReversed} />
+            <EndoplasmicReticulum reversed={proteinReversed} />
             <Ribosome reversed={proteinReversed} />
             <SynapseBridge reversed={synapseReversed} />
             <MyelinAxon reversed={myelinReversed} />
