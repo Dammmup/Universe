@@ -656,10 +656,15 @@ export default function HumanBody() {
 
     return (
         <group ref={groupRef}>
-            <ambientLight intensity={0.5} />
-            <hemisphereLight args={['#fff4ec', '#6a7890', 0.8]} />
-            <directionalLight position={[3, 7, 6]} intensity={2.2} color="#fff0e2" castShadow />
-            <directionalLight position={[-5, 3, -4]} intensity={1.1} color="#9fc8ff" />
+            {/* Студийная схема: ключ сверху-сбоку лепит форму, холодный
+                контровой свет сзади отделяет силуэт от светлого фона.
+                Прежде рассеянный свет заливал фигуру со всех сторон,
+                и рельеф пропадал. */}
+            <ambientLight intensity={0.18} />
+            <hemisphereLight args={['#fff4ec', '#4f5a70', 0.45]} />
+            <directionalLight position={[5.5, 6, 2.2]} intensity={2.7} color="#fff0e2" castShadow />
+            <directionalLight position={[-4, 2.5, 3]} intensity={0.55} color="#e8eeff" />
+            <directionalLight position={[-3, 5, -6]} intensity={2.2} color="#bcd8ff" />
             <pointLight position={[0.2, 1.9, 1.6]} intensity={bodyLayer === 2 ? 1.2 : 0.3} color="#ff6a7a" distance={5} />
 
             {/* Постамент: фигура — скульптура, ей нужна опора */}
