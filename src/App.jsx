@@ -653,7 +653,9 @@ export default function App() {
                     shadows={lowQuality ? false : 'percentage'}
                     camera={{ position: [0, 0, 5], fov: 60, near: 0.1, far: 1400 }}
                     dpr={lowQuality ? [0.75, 1] : [1, 1.75]}
-                    gl={{ antialias: true, powerPreference: 'high-performance', stencil: false }}
+                    /* Сглаживает композер (PostFX, samples): MSAA холста при
+                       постобработке достаётся только финальному кваду */
+                    gl={{ antialias: false, powerPreference: 'high-performance', stencil: false }}
                     onCreated={onCanvasCreated}
                     /* Клик мимо всего — выход из области тела обратно к фигуре */
                     onPointerMissed={onPointerMissed}
@@ -739,6 +741,7 @@ export default function App() {
                         bloomStrength={lowQuality ? 0 : (stage === HUMAN_STAGE ? 0.32 : (location ? 0.42 : 0.5))}
                         bloomThreshold={stage === HUMAN_STAGE ? 1.15 : (location ? 0.95 : 0.85)}
                         vignette={stage === HUMAN_STAGE ? 0.16 : (location ? 0.36 : 0.44)}
+                        samples={lowQuality ? 0 : 4}
                     />
 
                 </Canvas>

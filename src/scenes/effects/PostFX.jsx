@@ -79,6 +79,7 @@ export default function PostFX({
     bloomRadius = 0.58,
     bloomThreshold = 0.85,
     vignette = 0.44,
+    samples = 4,
 }) {
     const gl = useThree((s) => s.gl);
     const scene = useThree((s) => s.scene);
@@ -123,7 +124,22 @@ export default function PostFX({
         bloom.strength = bloomStrength;
         bloom.radius = bloomRadius;
         bloom.threshold = bloomThreshold;
+        // Нулевая сила не выключала проход: пять размытий на полкадра
+        // считались вхолостую как раз на слабой машине, где их и обнулили
+        bloom.enabled = bloomStrength > 0;
     }, [composer, bloomStrength, bloomRadius, bloomThreshold]);
+
+    // Сглаживание живёт в буферах композера, а не в холсте: кадр рисуется в
+    // них, и antialias холста сглаживал только финальный полноэкранный квад —
+    // память под MSAA тратилась, а аксоны и орбиты оставались лесенкой.
+    useEffect(() => {
+        if (!composer) return;
+        [composer.renderTarget1, composer.renderTarget2].forEach((rt) => {
+            if (rt.samples === samples) return;
+            rt.samples = samples;
+            rt.dispose();
+        });
+    }, [composer, samples]);
 
     useEffect(() => () => composer?.dispose(), [composer]);
 

@@ -44,13 +44,13 @@ const labels = () => page.evaluate(() => {
 const report = {};
 const systems = ['cognition', 'feeling', 'will', 'state'];
 for (const id of systems) {
-    // eslint-disable-next-line no-await-in-loop
+     
     await page.evaluate((sys) => window.realityStore.getState().setMindSystem(sys), id);
-    // eslint-disable-next-line no-await-in-loop
+     
     await page.waitForTimeout(900);
-    // eslint-disable-next-line no-await-in-loop
+     
     report[id] = await labels();
-    // eslint-disable-next-line no-await-in-loop
+     
     await page.screenshot({ path: `tests/screenshots/mind-sys-${id}.png` });
 }
 

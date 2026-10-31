@@ -6,8 +6,12 @@ export default {
     ],
     theme: {
         extend: {
+            // Roboto как веб-шрифт не грузится (файл в public — только для
+            // подписей в 3D), и интерфейс падал в Arial без светлого
+            // начертания: font-light рисовался обычным. Системный шрифт
+            // приходит со всеми весами и оптическими размерами.
             fontFamily: {
-                sans: ['Roboto', 'Inter', 'sans-serif'],
+                sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
             },
             colors: {
                 layer: {
