@@ -31,7 +31,7 @@ varying vec2 vUv;
 void main() {
     vec3 N = normalize(vNormalW);
     vec3 V = normalize(cameraPosition - vPosW);
-    float fres = pow(1.0 - abs(dot(N, V)), uPower);
+    float fres = pow(max(0.0, 1.0 - abs(dot(N, V))), uPower);
     vec3 col = mix(uColor, uRim, fres);
     float alpha = mix(uAlpha, 0.95, fres) * uGain;
     gl_FragColor = vec4(col, alpha);
@@ -74,7 +74,7 @@ varying float vFold;
 void main() {
     vec3 N = normalize(vNormalW);
     vec3 V = normalize(cameraPosition - vPosW);
-    float fres = pow(1.0 - abs(dot(N, V)), 2.4);
+    float fres = pow(max(0.0, 1.0 - abs(dot(N, V))), 2.4);
     float crease = smoothstep(-0.15, 0.45, -vFold);
     vec3 col = mix(uColor, uCrease, crease * 0.65);
     col += uEmissive * uGlow;

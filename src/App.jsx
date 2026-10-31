@@ -693,11 +693,17 @@ export default function App() {
     }, []);
 
     return (
-        <div className={`relative w-screen h-screen overflow-hidden touch-none font-sans transition-colors duration-[1200ms] ${stage === HUMAN_STAGE ? 'bg-[#e9edf4] text-slate-950' : 'bg-black text-white'}`}>
+        <div className={`relative w-screen h-dvh overflow-hidden touch-none font-sans transition-colors duration-[1200ms] ${stage === HUMAN_STAGE ? 'bg-[#e9edf4] text-slate-950' : 'bg-black text-white'}`}>
 
             {/* 3D Canvas */}
             <div className="absolute inset-0">
                 <Canvas
+                    /* Смена качества пересоздаёт холст целиком. Safari (и на
+                       iPhone) после переключения теней, разрешения или свечения
+                       на живом контексте продолжал рисовать кадр, но перестал
+                       его показывать — экран оставался чёрным. Холст, сразу
+                       созданный в низком качестве, работает. */
+                    key={quality}
                     /* Тени нужны только диорамам локаций. PCFSoft в three 0.183
                        объявлен устаревшим — берём обычный PCF */
                     shadows={lowQuality ? false : 'percentage'}
@@ -829,7 +835,7 @@ export default function App() {
             <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-black/85 via-black/45 to-transparent transition-opacity duration-700 ${location && !shifting ? 'opacity-100' : 'opacity-0'}`} />
 
             {/* UI Overlay */}
-            <div className={`absolute bottom-4 sm:bottom-10 w-full px-4 text-center pointer-events-none data-ui transition-opacity duration-500 ${shifting ? 'opacity-0' : 'opacity-100'}`}>
+            <div className={`absolute bottom-[max(1rem,env(safe-area-inset-bottom))] sm:bottom-10 w-full px-4 text-center pointer-events-none data-ui transition-opacity duration-500 ${shifting ? 'opacity-0' : 'opacity-100'}`}>
                 {/* Первое, что видит зритель, — и единственное, что ему надо
                     сделать. Пульсирующая белая/50 на чёрном уходила к четверти
                     яркости и читалась как шум; теперь текст ровный, а движение

@@ -37,7 +37,7 @@ void main() {
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
     vH = h;
-    vAlpha = smoothstep(0.0, 0.12, h) * pow(1.0 - h, 1.4);
+    vAlpha = smoothstep(0.0, 0.12, h) * pow(max(0.0, 1.0 - h), 1.4);
     float px = mix(uSize.x, uSize.y, h) * uScale / max(0.001, -mv.z);
     vAlpha *= clamp(px / 1.5, 0.0, 1.0);
     gl_PointSize = max(px, 1.5);
@@ -479,7 +479,7 @@ varying vec3 vNormalV;
 varying vec3 vViewV;
 void main() {
     float lat = vObj.y;
-    float fres = pow(1.0 - abs(dot(normalize(vNormalV), normalize(vViewV))), 2.4);
+    float fres = pow(max(0.0, 1.0 - abs(dot(normalize(vNormalV), normalize(vViewV)))), 2.4);
     // Дыры — полярные шапки, где слоя нет; по краю дыры светится ультрафиолет
     float edgeS = -1.0 + uHoleS;
     float edgeN = 1.0 - uHoleN;

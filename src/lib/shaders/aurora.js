@@ -24,8 +24,9 @@ uniform float uIntensity;
 varying vec2 vUv;
 
 void main() {
-    // Яркость гаснет к верхнему краю завесы и пульсирует полосами по долготе
-    float vertical = pow(1.0 - vUv.y, 1.7);
+    // Яркость гаснет к верхнему краю завесы и пульсирует полосами по долготе.
+    // max(): pow от отрицательного — NaN, а блум разнёс бы его на весь кадр
+    float vertical = pow(max(0.0, 1.0 - vUv.y), 1.7);
     float bands = 0.55
         + 0.45 * sin(vUv.x * 42.0 + uTime * 2.2)
         * sin(vUv.x * 13.0 - uTime * 0.8);

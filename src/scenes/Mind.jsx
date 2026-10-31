@@ -409,7 +409,7 @@ function glowMaterial() {
                 if (r > 1.0) discard;
                 // Плотное ядро и мягкий ореол: точка читается как свет, а не диск
                 float core = exp(-r * r * 16.0);
-                float halo = pow(1.0 - r, 2.4) * 0.5;
+                float halo = pow(max(0.0, 1.0 - r), 2.4) * 0.5;
                 gl_FragColor = vec4(vColor * (core + halo), 1.0);
             }
         `,
