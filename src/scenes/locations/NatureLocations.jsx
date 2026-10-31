@@ -16,6 +16,7 @@ import {
     Rain,
     Terrain,
     Water,
+    lumpyBlob,
     mergeParts,
     lerp,
     scatter,
@@ -60,11 +61,12 @@ export function Jungle() {
     const extinct = useReversed('wildlife');
 
     const treeGeo = useMemo(() => mergeParts([
-        { geo: new THREE.CylinderGeometry(0.16, 0.3, 5, 6), color: '#5a4630', pos: [0, 2.5, 0] },
-        { geo: new THREE.IcosahedronGeometry(1.9, 1), color: '#ffffff', pos: [0, 5.4, 0], scale: [1, 0.55, 1] },
-        { geo: new THREE.IcosahedronGeometry(1.2, 1), color: '#e8ffe8', pos: [0.9, 5.9, 0.4], scale: [1, 0.6, 1] },
+        { geo: new THREE.CylinderGeometry(0.16, 0.3, 5, 8), color: '#5a4630', pos: [0, 2.5, 0], shade: [0.6, 1] },
+        { geo: lumpyBlob(1.9, 2, 0.2, 1.3), color: '#ffffff', pos: [0, 5.3, 0], scale: [1, 0.55, 1], shade: [0.45, 1.15] },
+        { geo: lumpyBlob(1.2, 1, 0.18, 4.1), color: '#e8ffe8', pos: [0.95, 5.85, 0.4], scale: [1, 0.62, 1], shade: [0.5, 1.2] },
+        { geo: lumpyBlob(1.0, 1, 0.18, 7.7), color: '#f0fff0', pos: [-0.8, 5.7, -0.6], scale: [1, 0.6, 1], shade: [0.5, 1.15] },
     ]), []);
-    const bushGeo = useMemo(() => new THREE.IcosahedronGeometry(1, 0), []);
+    const bushGeo = useMemo(() => lumpyBlob(1, 1, 0.22, 2.2), []);
     const stumpGeo = useMemo(() => new THREE.CylinderGeometry(0.3, 0.36, 0.5, 6).translate(0, 0.25, 0), []);
     const mat = useVertexMaterial({}, { sway: 1 });
     const plainMat = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true }), []);
@@ -208,10 +210,10 @@ export function Taiga() {
     const burning = useReversed('fireCycle');
 
     const pineGeo = useMemo(() => mergeParts([
-        { geo: new THREE.CylinderGeometry(0.1, 0.18, 1.6, 5), color: '#4a3524', pos: [0, 0.8, 0] },
-        { geo: new THREE.ConeGeometry(1.25, 2.4, 7), color: '#ffffff', pos: [0, 2.3, 0] },
-        { geo: new THREE.ConeGeometry(0.95, 2.0, 7), color: '#f2fff2', pos: [0, 3.5, 0] },
-        { geo: new THREE.ConeGeometry(0.6, 1.7, 7), color: '#e6f8e6', pos: [0, 4.6, 0] },
+        { geo: new THREE.CylinderGeometry(0.1, 0.18, 1.6, 6), color: '#4a3524', pos: [0, 0.8, 0] },
+        { geo: new THREE.ConeGeometry(1.25, 2.4, 11), color: '#ffffff', pos: [0, 2.3, 0], shade: [0.5, 1.05] },
+        { geo: new THREE.ConeGeometry(0.95, 2.0, 11), color: '#f2fff2', pos: [0, 3.5, 0], shade: [0.55, 1.1] },
+        { geo: new THREE.ConeGeometry(0.6, 1.7, 9), color: '#e6f8e6', pos: [0, 4.6, 0], shade: [0.6, 1.15] },
     ]), []);
     const charredGeo = useMemo(() => mergeParts([
         { geo: new THREE.CylinderGeometry(0.06, 0.16, 4.2, 5), color: '#ffffff', pos: [0, 2.1, 0] },
@@ -817,8 +819,11 @@ export function Mountains() {
         const tufts = scatter(rand, 900, [-60, 60], [-30, 28], (x, z) => meadowMask(x, z, mountainHeight(x, z), slopeAt(x, z)) > 0.5 && Math.abs(z - valleyRiver(x)) > 3.5)
             .map(([x, z]) => {
                 const k = 0.6 + rand() * 0.8;
-                const flower = rand() < 0.25;
-                return { p: [x, mountainHeight(x, z) - 0.05, z], s: [k, k, k], r: rand() * 6.28, c: flower ? ['#ffd84a', '#b36bff', '#ff6a8a'][Math.floor(rand() * 3)] : new THREE.Color().setHSL(0.24 + rand() * 0.06, 0.5, 0.3), d: rand() };
+                // Цветов немного и они мельче травы: прежние ярко-розовые и
+                // фиолетовые конусы в рост пучка читались конфетти
+                const flower = rand() < 0.1;
+                const f = flower ? 0.45 : 1;
+                return { p: [x, mountainHeight(x, z) - 0.05, z], s: [k * f, k * f, k * f], r: rand() * 6.28, c: flower ? ['#e9d77a', '#b9a3e0', '#e8b0bd'][Math.floor(rand() * 3)] : new THREE.Color().setHSL(0.22 + rand() * 0.07, 0.42, 0.24 + rand() * 0.08), d: rand() };
             });
         const rocks = scatter(rand, 500, [-60, 60], [-30, 28], (x, z) => meadowMask(x, z, mountainHeight(x, z), slopeAt(x, z)) > 0.3)
             .map(([x, z]) => {
