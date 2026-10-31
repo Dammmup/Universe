@@ -86,7 +86,7 @@ export function visibleNeurons(systemId, focusId = null) {
  * записи: в репозиторий они не входят, их приносит владелец прав.
  */
 export const MIND_TRACKS = {
-    attention: { file: 'attention.mp3', artist: 'Cupsize', title: 'Концентрация' },
+    attention: { file: 'attention.m4a', artist: 'Cupsize', title: 'Концентрация' },
     sadness: { file: 'sadness.mp3', artist: 'Malcolm Todd', title: 'Тоска' },
     dreaming: { file: 'dreaming.mp3', artist: 'Malcolm Todd', title: 'Мечта' },
     joy: { file: 'joy.mp3', artist: '', title: 'Радость' },
