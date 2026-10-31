@@ -134,6 +134,7 @@ function SunSystem({ sunDir, nightMode, dimmed, onSelect }) {
     const sunRef = useRef();
     const phase = useRef(0);
     const targetPhase = nightMode ? Math.PI : 0;
+    const glowTex = useMemo(() => circleSprite(), []);
 
     useFrame((state, delta) => {
         phase.current += (targetPhase - phase.current) * Math.min(1, delta * 1.1);
@@ -163,30 +164,35 @@ function SunSystem({ sunDir, nightMode, dimmed, onSelect }) {
                 onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
                 onPointerOut={() => { document.body.style.cursor = 'auto'; }}
             >
+                {/* Шары с постоянной прозрачностью давали угловатые круги с
+                    резкой кромкой. Свечение — спрайты с радиальным спадом,
+                    ядро не тонмапится, и его подхватывает bloom. */}
                 <mesh>
-                    <sphereGeometry args={[3.4, 24, 16]} />
-                    <meshBasicMaterial color={dimmed ? '#c25a2a' : '#fff3c4'} />
+                    <sphereGeometry args={[3.4, 48, 32]} />
+                    <meshBasicMaterial color={dimmed ? '#c25a2a' : '#fff6dc'} toneMapped={false} />
                 </mesh>
-                <mesh>
-                    <sphereGeometry args={[5.6, 20, 14]} />
-                    <meshBasicMaterial
-                        color={dimmed ? '#8a2f10' : '#ffb64a'}
+                <sprite scale={[16, 16, 1]} raycast={() => null}>
+                    <spriteMaterial
+                        map={glowTex}
+                        color={dimmed ? '#8a2f10' : '#ffc46a'}
                         transparent
-                        opacity={0.24}
+                        opacity={0.55}
                         blending={THREE.AdditiveBlending}
                         depthWrite={false}
+                        toneMapped={false}
                     />
-                </mesh>
-                <mesh>
-                    <sphereGeometry args={[9.5, 16, 12]} />
-                    <meshBasicMaterial
+                </sprite>
+                <sprite scale={[40, 40, 1]} raycast={() => null}>
+                    <spriteMaterial
+                        map={glowTex}
                         color={dimmed ? '#5c1c08' : '#ff8c2a'}
                         transparent
-                        opacity={0.06}
+                        opacity={0.12}
                         blending={THREE.AdditiveBlending}
                         depthWrite={false}
+                        toneMapped={false}
                     />
-                </mesh>
+                </sprite>
             </group>
         </group>
     );
