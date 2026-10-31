@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import gsap from 'gsap';
 import { useStore } from '../store';
+import { circleSprite } from '../lib/sprites';
 
 export default function BigBang() {
     const isExploded = useStore((s) => s.isExploded);
@@ -13,13 +14,18 @@ export default function BigBang() {
     const materialRef = useRef();
     const { camera } = useThree();
 
-    // До взрыва все частицы лежат в одной точке: рисовать 20 000 наложенных
-    // друг на друга аддитивных спрайтов бессмысленно и дорого (overdraw ронял
-    // FPS). Пока сингулярность цела, рендерится лишь малая часть буфера.
+    const seedRef = useRef();
+    const haloRef = useRef();
+    const flash = useRef(0);
+    const halo = useMemo(() => circleSprite(), []);
+
+    // До взрыва облака частиц нет вовсе: сингулярность — одна маленькая
+    // белая точка (seedRef). Сорок восемь цветных спрайтов размером 2.5
+    // сливались в кадре в большое сиреневое пятно, а не в точку.
     useEffect(() => {
         const geometry = pointsRef.current?.geometry;
         if (!geometry) return;
-        geometry.setDrawRange(0, isExploded ? particleCount : 48);
+        geometry.setDrawRange(0, isExploded ? particleCount : 0);
     }, [isExploded, particleCount]);
 
     // Генератор круглой текстуры для частиц (мягкий круг)
@@ -99,6 +105,19 @@ export default function BigBang() {
     };
 
     useFrame((state, delta) => {
+        // Точка едва заметно дышит: живая, но не мигает и не зовёт к себе
+        // громче подсказки внизу. В момент взрыва её ореол вспыхивает и тает.
+        const t = state.clock.elapsedTime;
+        if (isExploded) flash.current = Math.min(1, flash.current + delta * 4);
+        const f = flash.current;
+        if (seedRef.current) {
+            seedRef.current.scale.setScalar((1 + 0.08 * Math.sin(t * 1.6)) * (1 - f));
+        }
+        if (haloRef.current) {
+            haloRef.current.scale.setScalar(0.15 + 0.02 * Math.sin(t * 1.6) + f * f * 6);
+            haloRef.current.material.opacity = (0.55 + 0.1 * Math.sin(t * 1.6)) * (f > 0 ? Math.max(0, 1 - f) * 1.6 : 1);
+        }
+
         if (isExploded && pointsRef.current) {
             const positionsAttr = pointsRef.current.geometry.attributes.position;
             const posArray = positionsAttr.array;
@@ -124,19 +143,34 @@ export default function BigBang() {
 
     return (
         <group>
-            <points
-                ref={pointsRef}
-                onClick={handlePointerDown}
-                onPointerOver={() => { if (!isExploded) document.body.style.cursor = 'pointer' }}
-                onPointerOut={() => { document.body.style.cursor = 'auto' }}
-            >
+            {/* Сингулярность: крошечное белое ядро и мягкий ореол вокруг */}
+            <mesh ref={seedRef} raycast={() => null}>
+                <sphereGeometry args={[0.014, 16, 12]} />
+                <meshBasicMaterial color="#ffffff" toneMapped={false} />
+            </mesh>
+            <sprite ref={haloRef} scale={0.15} raycast={() => null}>
+                <spriteMaterial map={halo} color="#ffffff" transparent opacity={0.6} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+            </sprite>
+            {/* Попасть по точке в два пикселя нельзя — зона клика шире её */}
+            {!isExploded && (
+                <mesh
+                    visible={false}
+                    onClick={handlePointerDown}
+                    onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
+                    onPointerOut={() => { document.body.style.cursor = 'auto'; }}
+                >
+                    <sphereGeometry args={[0.45, 12, 8]} />
+                    <meshBasicMaterial />
+                </mesh>
+            )}
+            <points ref={pointsRef} raycast={() => null}>
                 <bufferGeometry>
                     <bufferAttribute attach="attributes-position" count={particleCount} array={positions} itemSize={3} />
                     <bufferAttribute attach="attributes-color" count={particleCount} array={colors} itemSize={3} />
                 </bufferGeometry>
                 <pointsMaterial
                     ref={materialRef}
-                    size={isExploded ? 0.3 : 2.5}
+                    size={0.3}
                     vertexColors
                     transparent
                     opacity={1}
@@ -148,9 +182,6 @@ export default function BigBang() {
                 />
             </points>
 
-            {!isExploded && (
-                <ambientLight intensity={10} />
-            )}
         </group>
     );
 }

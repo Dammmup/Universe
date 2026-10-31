@@ -602,6 +602,8 @@ function OrbitRing({ rx, rz, color = '#ffffff', opacity = 0.12, broken = false }
  * по своим настоящим соотношениям, поэтому Юпитер ползёт по орбите медленно,
  * но крутится вокруг оси быстрее всех.
  */
+const LABEL_POS = new THREE.Vector3();
+
 function OrbitingPlanet({
     factorId,
     label,
@@ -624,9 +626,25 @@ function OrbitingPlanet({
 }) {
     const groupRef = useRef();
     const bodyRef = useRef();
+    const labelRef = useRef();
     const angle = useRef(startAngle);
 
-    useFrame((_, delta) => {
+    useFrame(({ camera }, delta) => {
+        // Планета на вытянутой орбите проходит у самой камеры, и её подпись
+        // разрасталась на полэкрана поверх подсказок. Вблизи подпись тает:
+        // планету и так видно, а прочитать гигантские буквы всё равно нельзя.
+        const labels = labelRef.current;
+        if (labels && groupRef.current) {
+            const d = camera.position.distanceTo(groupRef.current.getWorldPosition(LABEL_POS));
+            const k = THREE.MathUtils.clamp((d - radius * 5 - 6) / 12, 0, 1);
+            labels.visible = k > 0.01;
+            labels.traverse((o) => {
+                if ('fillOpacity' in o) {
+                    o.fillOpacity = k;
+                    o.outlineOpacity = k;
+                }
+            });
+        }
         angle.current += delta * orbitSpeed;
         if (groupRef.current) {
             groupRef.current.position.set(
@@ -672,6 +690,7 @@ function OrbitingPlanet({
                 {children}
             </group>
 
+            <group ref={labelRef}>
             <BillboardText
                 position={[0, radius + 1.2, 0]}
                 fontSize={Math.min(1.3, Math.max(0.95, radius * 0.4))}
@@ -692,6 +711,7 @@ function OrbitingPlanet({
             >
                 {reversed ? reverseSubtitle : subtitle}
             </BillboardText>
+            </group>
         </group>
     );
 }

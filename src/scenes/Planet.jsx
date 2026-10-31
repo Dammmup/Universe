@@ -127,6 +127,8 @@ function StarDome({ dimmed }) {
  * вектор уходит в шейдеры Земли, облаков и атмосферы — поэтому терминатор,
  * блики на воде и тени зданий всегда согласованы.
  */
+const SUN_DISTANCE = 320;
+
 function SunSystem({ sunDir, nightMode, dimmed, onSelect }) {
     const lightRef = useRef();
     const sunRef = useRef();
@@ -142,8 +144,12 @@ function SunSystem({ sunDir, nightMode, dimmed, onSelect }) {
             lightRef.current.intensity = dimmed ? 0.35 : 2.6;
         }
         if (sunRef.current) {
-            sunRef.current.position.copy(sunDir.current).multiplyScalar(105);
-            const pulse = 1 + Math.sin(state.clock.elapsedTime * 1.5) * 0.02;
+            // Солнце стоит дальше любой камеры слоя: на 105 оно оказывалось
+            // между камерой карты и глобусом и висело над океаном размытым
+            // белым квадратом. Масштаб растёт вместе с дальностью — видимый
+            // размер диска тот же.
+            sunRef.current.position.copy(sunDir.current).multiplyScalar(SUN_DISTANCE);
+            const pulse = (1 + Math.sin(state.clock.elapsedTime * 1.5) * 0.02) * (SUN_DISTANCE / 105);
             sunRef.current.scale.setScalar(dimmed ? pulse * 0.55 : pulse);
         }
     });

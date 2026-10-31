@@ -22,6 +22,10 @@
     animation-name: fade-in;
   }
 
+  .animate-scroll-cue {
+    animation: none;
+  }
+
   button:active:not(:disabled) {
     scale: none;
   }

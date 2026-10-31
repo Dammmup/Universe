@@ -129,7 +129,7 @@ const STAGE_SHOTS = {
     // и нижние подписи не наезжают на строку интерфейса
     [CELL_STAGE]: { pos: [0, 0.6, 12.4], look: [0, -1.45, 0], fov: 58 },
     // Финал: вся нить масштабов целиком в кадре
-    [FINALE_STAGE]: { pos: [0, -0.1, 9.6], look: [0, 0.1, 0], fov: 46 },
+    [FINALE_STAGE]: { pos: [0, -0.6, 9.6], look: [0, -0.4, 0], fov: 46 },
 };
 
 /**
@@ -767,14 +767,35 @@ export default function App() {
             <ScenarioJournal light={stage === HUMAN_STAGE} hidden={stage === 0 || shifting} />
 
             {/* Подложка под нижней панелью: на песке, снегу и небе без неё текст теряется */}
-            <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-black/75 via-black/30 to-transparent transition-opacity duration-700 ${location && !shifting ? 'opacity-100' : 'opacity-0'}`} />
+            <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-black/85 via-black/45 to-transparent transition-opacity duration-700 ${location && !shifting ? 'opacity-100' : 'opacity-0'}`} />
 
             {/* UI Overlay */}
             <div className={`absolute bottom-4 sm:bottom-10 w-full px-4 text-center pointer-events-none data-ui transition-opacity duration-500 ${shifting ? 'opacity-0' : 'opacity-100'}`}>
+                {/* Первое, что видит зритель, — и единственное, что ему надо
+                    сделать. Пульсирующая белая/50 на чёрном уходила к четверти
+                    яркости и читалась как шум; теперь текст ровный, а движение
+                    отдано стрелке — она и показывает, куда крутить. */}
                 {!isExploded && (
-                    <p className="text-white/50 tracking-[0.3em] uppercase text-xs animate-pulse">
-                        {isTouch ? 'Свайп вверх для старта' : 'Скролль вниз для старта'}
-                    </p>
+                    <div className="flex flex-col items-center gap-3 animate-fade-in">
+                        <p className="text-white/85 tracking-[0.32em] uppercase text-xs sm:text-sm">
+                            {isTouch ? 'Свайп вверх — начать' : 'Прокрути вниз — начать'}
+                        </p>
+                        {/* Поворот на обёртке: у самой стрелки transform занят анимацией */}
+                        <span className={`block ${isTouch ? 'rotate-180' : ''}`}>
+                        <svg
+                            aria-hidden="true"
+                            viewBox="0 0 24 24"
+                            className="h-5 w-5 text-white/70 animate-scroll-cue"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                        >
+                            <path d="M6 9l6 6 6-6" />
+                        </svg>
+                        </span>
+                    </div>
                 )}
                 {stage === STAGE.COSMOS && (
                     <div className="text-white/70 animate-fade-in relative z-50">

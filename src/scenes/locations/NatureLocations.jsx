@@ -622,6 +622,10 @@ export function Arctic() {
             <InstancedSet geometry={floeGeo} material={iceMat} items={floes} blend={melting ? 1 : 0} speed={0.5} />
             <InstancedSet geometry={bergGeo} material={iceMat} items={bergs} blend={melting ? 1 : 0} speed={0.4} />
             <InstancedSet geometry={hutGeo} material={mat} items={huts} blend={thawing ? 1 : 0} speed={0.6} />
+            {/* Полярной ночью посёлок стоял чёрными коробками: лунного света
+                на тёмно-красные стены не хватает. Тёплый свет из окон
+                делает их домами, а не дырами в снегу. */}
+            {!polarDay && <pointLight position={[-23, 3, 8.5]} color="#ffb870" intensity={14} distance={16} decay={1.6} />}
 
             <AuroraRibbon faded={faded} />
 

@@ -155,10 +155,13 @@ export default function FactorMarker({
             <Billboard position={[0, labelOffset * scale, 0]}>
                 <Text
                     font="/Roboto-Regular.ttf"
-                    fontSize={0.3 * scale}
+                    fontSize={(theme === 'light' ? 0.5 : 0.3) * scale}
                     letterSpacing={0.14}
-                    color={theme === 'light' ? '#1c2533' : tone}
-                    fillOpacity={hovered ? 1 : 0.82}
+                    /* На светлом теле подпись выходила пикселей в восемь и
+                       сглаживанием размывалась в серый: крупнее, почти чёрная
+                       и без прозрачности */
+                    color={theme === 'light' ? '#0b1220' : tone}
+                    fillOpacity={hovered || theme === 'light' ? 1 : 0.82}
                     anchorX="center"
                     anchorY="top"
                     outlineColor={theme === 'light' ? '#ffffff' : '#000000'}

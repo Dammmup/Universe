@@ -17,8 +17,8 @@ import { seededRandom } from '../lib/geo';
  * аксону. Это условная картинка того, что окружение делает с нейронами:
  *
  *   покой      — импульсы хаотично и медленно дотекают до соседей;
- *   внимание   — один маршрут от А до Б, импульсы идут по нему составом,
- *                синхронно и с одинаковым шагом;
+ *   внимание   — много импульсов от А до Б по параллельным маршрутам:
+ *                выходят разом и приходят разом, за одно и то же время;
  *   гнев       — импульсы разного радиуса колеблются, тормозят у цели и
  *                срываются назад, прежде чем дойти;
  *   стресс     — нейроны по одному темнеют, отрываются и падают из сети;
@@ -56,8 +56,9 @@ const MODES = {
     // Покой: хаотично и медленно, импульсы плывут, чуть отклоняясь от аксона
     idle: { color: '#9fb8ff', bg: '#05060d', rate: 3.2, speed: 0.4, pattern: 'random', motion: 'drift', size: [0.5, 1.1], drift: 0.15 },
     attention: [
-        // Поток: один маршрут, состав импульсов с равным шагом; остальное гаснет
-        { color: '#3fb0ff', bg: '#020a1a', rate: 2.6, hop: 0.34, pattern: 'route', motion: 'steady', size: [1, 1], dim: 0.6, still: 0.7, heat: [1.4, 0.5], bump: 0.6 },
+        // Поток: много импульсов по нескольким маршрутам от А к Б, выходят
+        // разом и приходят разом — путь любой длины занимает одно и то же время
+        { color: '#3fb0ff', bg: '#020a1a', rate: 4, transit: 2.2, pattern: 'route', motion: 'steady', size: [0.85, 0.85], dim: 0.6, still: 0.85, heat: [1.1, 0.6], bump: 0.35, beacon: 1, trail: 10 },
         // Расфокус: импульсы бродят по случайным соседям и никуда не приходят
         { color: '#a08cc0', bg: '#0a0810', rate: 6, speed: 0.9, pattern: 'wander', motion: 'drift', size: [0.4, 0.9], drift: 0.6 },
     ],
@@ -332,6 +333,38 @@ function farthest(net, src) {
     return net.nodes.reduce((best, n, i) => (n.base.distanceTo(from) > net.nodes[best].base.distanceTo(from) ? i : best), src);
 }
 
+/**
+ * Несколько непересекающихся путей от src к target: каждый следующий ищется
+ * в обход внутренних нейронов уже найденных, так маршруты идут параллельно.
+ */
+function parallelRoutes(net, src, target, count) {
+    const banned = new Set();
+    const routes = [];
+    for (let k = 0; k < count; k += 1) {
+        const prev = new Array(net.nodes.length).fill(-1);
+        const seen = new Set([src]);
+        const queue = [src];
+        while (queue.length) {
+            const v = queue.shift();
+            if (v === target) break;
+            net.neighbors[v].forEach(({ to }) => {
+                if (seen.has(to) || banned.has(to)) return;
+                // Прямой перескок от А к Б не маршрут — так «состав» не виден
+                if (v === src && to === target) return;
+                seen.add(to);
+                prev[to] = v;
+                queue.push(to);
+            });
+        }
+        if (prev[target] < 0) break;
+        const path = [];
+        for (let v = target; v !== -1; v = prev[v]) path.unshift(v);
+        path.slice(1, -1).forEach((v) => banned.add(v));
+        routes.push(path);
+    }
+    return routes.length ? routes : [bfsPath(net, src, target)];
+}
+
 /** Маленький круг вокруг src: треугольник, если он есть, иначе челнок к соседу. */
 function smallCycle(net, src) {
     for (const { to: a } of net.neighbors[src]) {
@@ -461,6 +494,7 @@ export default function Mind() {
         visited: new Map(),
         replay: null,
         route: null,
+        routes: null,
         parents: null,
         cycle: null,
         partner: -1,
@@ -490,6 +524,7 @@ export default function Mind() {
         sim.impulses.forEach((imp) => { imp.last = true; });
         sim.goal = m.pattern === 'goal' || m.pattern === 'route' ? farthest(net, src) : -1;
         sim.route = sim.goal >= 0 ? bfsPath(net, src, sim.goal) : null;
+        sim.routes = m.pattern === 'route' && sim.goal >= 0 ? parallelRoutes(net, src, sim.goal, 6) : null;
         sim.parents = m.pattern === 'converge' ? bfsParents(net, m.root === 'center' ? 0 : src) : null;
         sim.cycle = m.pattern === 'loop' ? smallCycle(net, src) : null;
         sim.partner = -1;
@@ -655,7 +690,7 @@ export default function Mind() {
             imp.dir = link ? link.dir : 1;
             const len = sim.pos[a].distanceTo(sim.pos[b]);
             imp.len = len;
-            imp.dur = imp.m.hop ? imp.m.hop : Math.max(0.15, len / (2.2 * (imp.m.speed ?? 1)));
+            imp.dur = imp.hopDur ?? (imp.m.hop ? imp.m.hop : Math.max(0.15, len / (2.2 * (imp.m.speed ?? 1))));
         };
         /**
          * Новый импульс. opts.path — цепочка нейронов: импульс пройдёт её всю,
@@ -670,6 +705,7 @@ export default function Mind() {
             imp.motion = opts.motion ?? m.motion ?? 'steady';
             imp.wave = opts.wave ?? 0;
             imp.path = opts.path ?? null;
+            imp.hopDur = opts.hopDur ?? null;
             imp.k = 0;
             imp.hops = opts.hops ?? 0;
             imp.stop = opts.stop ?? 1;
@@ -734,8 +770,10 @@ export default function Mind() {
                     break;
                 }
                 case 'route': {
-                    // Состав по одному маршруту: шаг одинаковый, интервал одинаковый
-                    if (sim.route) firePath(sim.route);
+                    // Залп по всем маршрутам сразу. Время в пути у всех одно:
+                    // на длинном маршруте перегон короче, на коротком — дольше
+                    sim.routes?.forEach((path) => firePath(path, { hopDur: m.transit / (path.length - 1) }));
+                    sim.glow[src] = 1.2;
                     break;
                 }
                 case 'wander': {
