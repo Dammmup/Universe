@@ -4,6 +4,7 @@ import { Billboard, Text, useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore } from '../store';
 import { seededRandom } from '../lib/geo';
+import { MOON_TEXTURE } from '../lib/quality';
 import { earthWorld } from '../lib/journey';
 import { circleSprite, nebulaSprite, starSprite } from '../lib/sprites';
 import {
@@ -29,7 +30,7 @@ import {
 import EarthGlobe from './earth/EarthGlobe';
 import FactorMarker from './effects/FactorMarker';
 
-const MOON_TEXTURE = '/textures/planets/moon_1024.jpg';
+
 
 /**
  * Подпись, всегда повёрнутая к камере. Свободное вращение OrbitControls
