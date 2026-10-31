@@ -2,7 +2,7 @@
 import React, { forwardRef, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { useStore } from '../../store';
 import { FACTORS_DATA } from '../../data/factors';
 import { isEffectivelyReversed } from '../../data/consequences';
@@ -644,16 +644,27 @@ export function useWindowMaterial({
                      {
                         float wall = 1.0 - step(0.6, abs(vWNorm.y));
                         vec2 facet = abs(vWNorm.x) > abs(vWNorm.z) ? vWPos.zy : vWPos.xy;
-                        vec2 cellId = floor(facet / uCell);
-                        vec2 f = fract(facet / uCell);
-                        float frame = step(0.2, f.x) * step(f.x, 0.8) * step(0.24, f.y) * step(f.y, 0.76);
+                        vec2 uvc = facet / uCell;
+                        vec2 cellId = floor(uvc);
+                        vec2 f = fract(uvc);
+                        // Сколько окон приходится на пиксель. Когда окно меньше
+                        // пикселя, узор превращался в рябь и мерцал при облёте:
+                        // вдали сетка плавно заменяется её средней яркостью.
+                        vec2 fw = fwidth(uvc);
+                        float aa = smoothstep(0.14, 0.6, max(fw.x, fw.y));
+                        vec2 e = max(fw, vec2(0.02));
+                        float frame = smoothstep(0.2 - e.x, 0.2 + e.x, f.x) * smoothstep(0.8 + e.x, 0.8 - e.x, f.x)
+                            * smoothstep(0.24 - e.y, 0.24 + e.y, f.y) * smoothstep(0.76 + e.y, 0.76 - e.y, f.y);
                         float h = winHash(cellId + floor(vWPos.xz * 0.37));
                         float on = step(1.0 - uLit, h);
                         float flick = 1.0 - uFlicker * step(0.6, fract(sin(uTime * 7.0 + h * 40.0) * 13.0));
-                        float glass = frame * wall;
-                        diffuseColor.rgb *= mix(1.0, 0.45, glass);
+                        float glass = mix(frame, 0.31, aa) * wall;
+                        // Стекло холоднее и темнее стены, но не дыра: днём оно
+                        // отражает небо, а не чернеет коричневым
+                        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.5 + vec3(0.04, 0.06, 0.09), glass);
                         vec3 tone = mix(uWinColor, uAltColor, uAlt);
-                        totalEmissiveRadiance += tone * glass * on * uLights * flick * (0.3 + 0.5 * winHash(cellId * 1.7));
+                        float glow = mix(on * (0.3 + 0.5 * winHash(cellId * 1.7)), uLit * 0.55, aa);
+                        totalEmissiveRadiance += tone * glass * glow * uLights * mix(flick, 1.0, aa);
                      }`,
                 );
         };
@@ -1038,10 +1049,14 @@ export function useBaseBox() {
  * Склеивает части в одну геометрию с вершинным цветом: ствол и крона, башня
  * и шпиль. Цвет инстанса потом умножается на цвет части — крона перекрашивается
  * целиком, а ствол остаётся тёмным.
- * part: { geo, color, pos?: [x,y,z], rot?: [x,y,z], scale?: [x,y,z] }
+ * part: { geo, color, pos?: [x,y,z], rot?: [x,y,z], scale?: [x,y,z], shade?: [низ, верх] }
+ *
+ * shade — множитель цвета от низа части к верху: крона темнеет к основанию,
+ * как настоящая листва, куда свет доходит сквозь верхние ярусы. Без него
+ * одноцветная крона под рассеянным светом выглядела пластиковой.
  */
 export function mergeParts(parts) {
-    const geos = parts.map(({ geo, color = '#ffffff', pos, rot, scale }) => {
+    const geos = parts.map(({ geo, color = '#ffffff', pos, rot, scale, shade }) => {
         let g = geo.index ? geo.toNonIndexed() : geo.clone();
         if (scale) g.scale(...scale);
         if (rot) {
@@ -1049,14 +1064,21 @@ export function mergeParts(parts) {
             g.rotateY(rot[1]);
             g.rotateZ(rot[2]);
         }
+        // Числа, а не ссылка на коробку: translate пересчитывает её на месте
+        g.computeBoundingBox();
+        const minY = g.boundingBox.min.y;
+        const span = Math.max(1e-4, g.boundingBox.max.y - minY);
         if (pos) g.translate(...pos);
         const tint = new THREE.Color(color);
         const n = g.attributes.position.count;
         const col = new Float32Array(n * 3);
+        const ys = g.attributes.position;
+        const base = minY + (pos ? pos[1] : 0);
         for (let i = 0; i < n; i += 1) {
-            col[i * 3] = tint.r;
-            col[i * 3 + 1] = tint.g;
-            col[i * 3 + 2] = tint.b;
+            const k = shade ? shade[0] + (shade[1] - shade[0]) * ((ys.getY(i) - base) / span) : 1;
+            col[i * 3] = tint.r * k;
+            col[i * 3 + 1] = tint.g * k;
+            col[i * 3 + 2] = tint.b * k;
         }
         g.setAttribute('color', new THREE.BufferAttribute(col, 3));
         // Оставляем только общие атрибуты — иначе склейка откажется работать
@@ -1069,6 +1091,30 @@ export function mergeParts(parts) {
     geos.forEach((g) => g.dispose());
     merged.computeBoundingSphere();
     return merged;
+}
+
+/**
+ * Бугристый шар для крон, кустов и кораллов. Икосаэдр с гранями читался
+ * как «лоу-поли»; здесь вершины сдвинуты шумом вдоль нормали, а нормали
+ * пересчитаны гладкими — получается рыхлая масса листвы.
+ */
+export function lumpyBlob(radius = 1, detail = 2, amount = 0.22, seed = 1) {
+    let g = new THREE.IcosahedronGeometry(radius, detail);
+    g.deleteAttribute('normal');
+    g.deleteAttribute('uv');
+    g = mergeVertices(g);
+    const pos = g.attributes.position;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i += 1) {
+        v.fromBufferAttribute(pos, i);
+        const d = v.clone().normalize();
+        const n = Math.sin(d.x * 4.1 + seed) * Math.sin(d.y * 3.7 + seed * 1.7) * Math.sin(d.z * 4.4 + seed * 0.6)
+            + 0.5 * Math.sin(d.x * 9.3 + seed * 2.1) * Math.sin(d.z * 8.7 - seed);
+        v.addScaledVector(d, n * amount * radius);
+        pos.setXYZ(i, v.x, v.y, v.z);
+    }
+    g.computeVertexNormals();
+    return g;
 }
 
 // ─── Стаи ───────────────────────────────────────────────────────────────────
@@ -1210,7 +1256,10 @@ export function useVertexMaterial(props = {}, { sway = 0 } = {}) {
         const material = new THREE.MeshStandardMaterial({
             vertexColors: true,
             roughness: 0.85,
-            flatShading: true,
+            // Гладкие нормали: гранёные кроны и конусы были главной
+            // причиной «игрушечного» вида диорам. Кому нужны грани — у тех
+            // они в самой геометрии (лёд, камни).
+            flatShading: false,
             ...props,
         });
         if (sway > 0) {

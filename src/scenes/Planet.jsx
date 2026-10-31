@@ -127,11 +127,14 @@ function StarDome({ dimmed }) {
  * вектор уходит в шейдеры Земли, облаков и атмосферы — поэтому терминатор,
  * блики на воде и тени зданий всегда согласованы.
  */
+const SUN_DISTANCE = 320;
+
 function SunSystem({ sunDir, nightMode, dimmed, onSelect }) {
     const lightRef = useRef();
     const sunRef = useRef();
     const phase = useRef(0);
     const targetPhase = nightMode ? Math.PI : 0;
+    const glowTex = useMemo(() => circleSprite(), []);
 
     useFrame((state, delta) => {
         phase.current += (targetPhase - phase.current) * Math.min(1, delta * 1.1);
@@ -142,8 +145,12 @@ function SunSystem({ sunDir, nightMode, dimmed, onSelect }) {
             lightRef.current.intensity = dimmed ? 0.35 : 2.6;
         }
         if (sunRef.current) {
-            sunRef.current.position.copy(sunDir.current).multiplyScalar(105);
-            const pulse = 1 + Math.sin(state.clock.elapsedTime * 1.5) * 0.02;
+            // Солнце стоит дальше любой камеры слоя: на 105 оно оказывалось
+            // между камерой карты и глобусом и висело над океаном размытым
+            // белым квадратом. Масштаб растёт вместе с дальностью — видимый
+            // размер диска тот же.
+            sunRef.current.position.copy(sunDir.current).multiplyScalar(SUN_DISTANCE);
+            const pulse = (1 + Math.sin(state.clock.elapsedTime * 1.5) * 0.02) * (SUN_DISTANCE / 105);
             sunRef.current.scale.setScalar(dimmed ? pulse * 0.55 : pulse);
         }
     });
@@ -157,30 +164,35 @@ function SunSystem({ sunDir, nightMode, dimmed, onSelect }) {
                 onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
                 onPointerOut={() => { document.body.style.cursor = 'auto'; }}
             >
+                {/* Шары с постоянной прозрачностью давали угловатые круги с
+                    резкой кромкой. Свечение — спрайты с радиальным спадом,
+                    ядро не тонмапится, и его подхватывает bloom. */}
                 <mesh>
-                    <sphereGeometry args={[3.4, 24, 16]} />
-                    <meshBasicMaterial color={dimmed ? '#c25a2a' : '#fff3c4'} />
+                    <sphereGeometry args={[3.4, 48, 32]} />
+                    <meshBasicMaterial color={dimmed ? '#c25a2a' : '#fff6dc'} toneMapped={false} />
                 </mesh>
-                <mesh>
-                    <sphereGeometry args={[5.6, 20, 14]} />
-                    <meshBasicMaterial
-                        color={dimmed ? '#8a2f10' : '#ffb64a'}
+                <sprite scale={[16, 16, 1]} raycast={() => null}>
+                    <spriteMaterial
+                        map={glowTex}
+                        color={dimmed ? '#8a2f10' : '#ffc46a'}
                         transparent
-                        opacity={0.24}
+                        opacity={0.55}
                         blending={THREE.AdditiveBlending}
                         depthWrite={false}
+                        toneMapped={false}
                     />
-                </mesh>
-                <mesh>
-                    <sphereGeometry args={[9.5, 16, 12]} />
-                    <meshBasicMaterial
+                </sprite>
+                <sprite scale={[40, 40, 1]} raycast={() => null}>
+                    <spriteMaterial
+                        map={glowTex}
                         color={dimmed ? '#5c1c08' : '#ff8c2a'}
                         transparent
-                        opacity={0.06}
+                        opacity={0.12}
                         blending={THREE.AdditiveBlending}
                         depthWrite={false}
+                        toneMapped={false}
                     />
-                </mesh>
+                </sprite>
             </group>
         </group>
     );

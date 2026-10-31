@@ -12,9 +12,20 @@ import {
     mercuryTexture,
     saturnRingsTexture,
     saturnTexture,
-    sunTexture,
     venusTexture,
 } from '../lib/planetTextures';
+import {
+    cometFragment,
+    cometVertex,
+    coronaFragment,
+    coronaVertex,
+    glowPointFragment,
+    rimFragment,
+    rimVertex,
+    sunFragment,
+    sunVertex,
+    windVertex,
+} from '../lib/shaders/cosmos';
 import EarthGlobe from './earth/EarthGlobe';
 import FactorMarker from './effects/FactorMarker';
 
@@ -31,6 +42,42 @@ function BillboardText({ position, children, ...textProps }) {
                 {children}
             </Text>
         </Billboard>
+    );
+}
+
+/** Пикселей на единицу размера на единичной дистанции — для точек в шейдере. */
+function pointScale(state) {
+    const fov = THREE.MathUtils.degToRad(state.camera.fov ?? 50);
+    return (state.size.height * state.gl.getPixelRatio()) / (2 * Math.tan(fov / 2));
+}
+
+/** Ободок атмосферы: светится по краю шара, на дневной стороне. */
+function rimUniforms(color, intensity, power, sunlit) {
+    return {
+        uColor: { value: new THREE.Color(color) },
+        uIntensity: { value: intensity },
+        uPower: { value: power },
+        uSunlit: { value: sunlit },
+    };
+}
+
+function Rim({ radius, color, intensity = 1.2, power = 3, sunlit = 1, scale = 1.04 }) {
+    const uniforms = useMemo(
+        () => rimUniforms(color, intensity, power, sunlit),
+        [color, intensity, power, sunlit],
+    );
+    return (
+        <mesh scale={scale} raycast={() => null}>
+            <sphereGeometry args={[radius, 48, 32]} />
+            <shaderMaterial
+                vertexShader={rimVertex}
+                fragmentShader={rimFragment}
+                uniforms={uniforms}
+                transparent
+                depthWrite={false}
+                blending={THREE.AdditiveBlending}
+            />
+        </mesh>
     );
 }
 
@@ -174,7 +221,7 @@ function Nebula({ position, color, size, rotation = 0 }) {
                 map={tex}
                 color={color}
                 transparent
-                opacity={0.55}
+                opacity={0.7}
                 depthWrite={false}
                 blending={THREE.AdditiveBlending}
             />
@@ -228,7 +275,7 @@ function SolarProminences({ dimmed }) {
                     <meshBasicMaterial
                         color={dimmed ? '#8a2200' : '#ffb347'}
                         transparent
-                        opacity={0.32}
+                        opacity={0.7}
                         depthWrite={false}
                         blending={THREE.AdditiveBlending}
                     />
@@ -238,78 +285,62 @@ function SolarProminences({ dimmed }) {
     );
 }
 
-function SunCorona({ dimmed }) {
-    const innerRef = useRef();
-    const outerRef = useRef();
-
-    const makeRays = (count, innerR, outerR, seed) => {
-        const rand = seededRandom(seed);
-        const pos = new Float32Array(count * 2 * 3);
-        for (let i = 0; i < count; i += 1) {
-            const angle = (i / count) * Math.PI * 2;
-            const lenVar = 0.7 + rand() * 0.6;
-            pos[i * 6] = Math.cos(angle) * innerR;
-            pos[i * 6 + 1] = Math.sin(angle) * innerR;
-            pos[i * 6 + 2] = 0;
-            pos[i * 6 + 3] = Math.cos(angle) * (outerR * lenVar);
-            pos[i * 6 + 4] = Math.sin(angle) * (outerR * lenVar);
-            pos[i * 6 + 5] = 0;
-        }
-        return pos;
+/** Плавный переход «живое ↔ угасшее» для шейдерных uniform-ов звезды. */
+function useDim(dimmed) {
+    const dim = useRef(dimmed ? 1 : 0);
+    return (delta) => {
+        dim.current += ((dimmed ? 1 : 0) - dim.current) * Math.min(1, delta * 1.5);
+        return dim.current;
     };
+}
 
-    const rays1 = useMemo(() => makeRays(28, 4.3, 7.4, 0xc01), []);
-    const rays2 = useMemo(() => makeRays(18, 4.6, 9.4, 0xc02), []);
+function SunCorona({ dimmed }) {
+    const step = useDim(dimmed);
+    const uniforms = useMemo(() => ({
+        uTime: { value: 0 },
+        uRadius: { value: 4 },
+        uDim: { value: 0 },
+        uColor: { value: new THREE.Color('#ff9a3c') },
+    }), []);
 
-    useFrame((state) => {
-        const t = state.clock.elapsedTime;
-        // Лучи держим на пределе видимости: яркими они читались схемой
-        // «солнце из учебника», а не структурой короны
-        if (innerRef.current) {
-            innerRef.current.rotation.z = t * 0.12;
-            innerRef.current.material.opacity = (dimmed ? 0.03 : 0.1) + Math.sin(t * 2.1) * 0.03;
-        }
-        if (outerRef.current) {
-            outerRef.current.rotation.z = -t * 0.07;
-            outerRef.current.material.opacity = (dimmed ? 0.015 : 0.06) + Math.sin(t * 1.4 + 1) * 0.02;
-        }
+    useFrame((state, delta) => {
+        const d = step(delta);
+        uniforms.uTime.value = state.clock.elapsedTime;
+        uniforms.uDim.value = d;
+        uniforms.uRadius.value = 4 * (1 - 0.28 * d);
+        uniforms.uColor.value.setRGB(1, 0.6 - d * 0.32, 0.24 - d * 0.18);
     });
 
-    const rayColor = dimmed ? '#ff5500' : '#ffdd66';
-
     return (
-        <group>
-            <lineSegments ref={innerRef}>
-                <bufferGeometry>
-                    <bufferAttribute attach="attributes-position" args={[rays1, 3]} />
-                </bufferGeometry>
-                <lineBasicMaterial color={rayColor} transparent opacity={0.14} depthWrite={false} blending={THREE.AdditiveBlending} />
-            </lineSegments>
-            <lineSegments ref={outerRef}>
-                <bufferGeometry>
-                    <bufferAttribute attach="attributes-position" args={[rays2, 3]} />
-                </bufferGeometry>
-                <lineBasicMaterial color={rayColor} transparent opacity={0.08} depthWrite={false} blending={THREE.AdditiveBlending} />
-            </lineSegments>
-        </group>
+        <Billboard>
+            <mesh raycast={() => null}>
+                <planeGeometry args={[36, 36]} />
+                <shaderMaterial
+                    vertexShader={coronaVertex}
+                    fragmentShader={coronaFragment}
+                    uniforms={uniforms}
+                    transparent
+                    depthWrite={false}
+                    blending={THREE.AdditiveBlending}
+                />
+            </mesh>
+        </Billboard>
     );
 }
 
 function Sun({ dimmed, onSelect }) {
-    const glowRef = useRef();
     const surfaceRef = useRef();
-    const tex = useMemo(() => sunTexture(), []);
     const glowTex = useMemo(() => circleSprite(), []);
+    const step = useDim(dimmed);
+    const uniforms = useMemo(() => ({ uTime: { value: 0 }, uDim: { value: 0 } }), []);
 
-    useFrame((state) => {
-        const t = state.clock.elapsedTime;
-        if (glowRef.current) {
-            const breath = 11 * (1 + Math.sin(t * 1.3) * (dimmed ? 0.02 : 0.06));
-            glowRef.current.scale.set(breath, breath, 1);
-        }
+    useFrame((state, delta) => {
+        const d = step(delta);
+        uniforms.uTime.value = state.clock.elapsedTime;
+        uniforms.uDim.value = d;
         if (surfaceRef.current) {
-            surfaceRef.current.rotation.y += 0.0008;
-            surfaceRef.current.rotation.z += 0.0003;
+            surfaceRef.current.rotation.y += delta * 0.03;
+            surfaceRef.current.scale.setScalar(1 - 0.28 * d);
         }
     });
 
@@ -319,50 +350,37 @@ function Sun({ dimmed, onSelect }) {
             onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
             onPointerOut={() => { document.body.style.cursor = 'auto'; }}
         >
-            <mesh ref={surfaceRef} scale={dimmed ? 0.72 : 1}>
-                <sphereGeometry args={[4, 64, 48]} />
-                <meshBasicMaterial map={tex} color={dimmed ? '#b04a12' : '#ffffff'} />
+            <mesh ref={surfaceRef}>
+                <sphereGeometry args={[4, 96, 64]} />
+                <shaderMaterial vertexShader={sunVertex} fragmentShader={sunFragment} uniforms={uniforms} />
             </mesh>
 
-            {/* Корона — спрайты с радиальным спадом, а не сферы. Сфера с
-                постоянным цветом даёт ровный диск с резкой границей: вокруг
-                звезды повисал плоский оранжевый круг вместо свечения. */}
-            <sprite ref={glowRef} scale={[11, 11, 1]}>
-                <spriteMaterial
-                    map={glowTex}
-                    color={dimmed ? '#8a2a05' : '#ffb03c'}
-                    transparent
-                    opacity={dimmed ? 0.3 : 0.55}
-                    depthWrite={false}
-                    toneMapped={false}
-                    blending={THREE.AdditiveBlending}
-                />
-            </sprite>
-            <sprite scale={[18, 18, 1]}>
+            {/* Рассеянный свет вокруг короны: широкий и едва заметный */}
+            <sprite scale={[22, 22, 1]} raycast={() => null}>
                 <spriteMaterial
                     map={glowTex}
                     color={dimmed ? '#4a1200' : '#ff7a1e'}
                     transparent
-                    opacity={dimmed ? 0.06 : 0.16}
+                    opacity={dimmed ? 0.04 : 0.08}
                     depthWrite={false}
                     toneMapped={false}
                     blending={THREE.AdditiveBlending}
                 />
             </sprite>
-            <sprite scale={[30, 30, 1]}>
+            <sprite scale={[46, 46, 1]} raycast={() => null}>
                 <spriteMaterial
                     map={glowTex}
                     color={dimmed ? '#2a0a00' : '#ff5a10'}
                     transparent
-                    opacity={dimmed ? 0.02 : 0.05}
+                    opacity={dimmed ? 0.015 : 0.04}
                     depthWrite={false}
                     toneMapped={false}
                     blending={THREE.AdditiveBlending}
                 />
             </sprite>
 
-            <SolarProminences dimmed={dimmed} />
             <SunCorona dimmed={dimmed} />
+            <SolarProminences dimmed={dimmed} />
 
             <BillboardText
                 position={[0, 7.2, 0]}
@@ -385,88 +403,87 @@ function Sun({ dimmed, onSelect }) {
     );
 }
 
+const WIND_COUNT = 1500;
+const WIND_SUN = new THREE.Color('#ffe2a0');
+const WIND_SHIELD = new THREE.Color('#7c93b8');
+
+/**
+ * Солнечный ветер — поток частиц от звезды наружу. Раньше это были 42
+ * неподвижных отрезка и кольцо точек, которое просто вращалось. При
+ * экранировании поток замедляется, остывает и упирается в близкую границу.
+ */
 function SolarWind({ shielded, onSelect }) {
-    const rayRef = useRef();
-    const particleRef = useRef();
-    const rayCount = 42;
-    const particleCount = 180;
-    const tex = useMemo(() => circleSprite(), []);
-
-    const rays = useMemo(() => {
-        const pos = new Float32Array(rayCount * 2 * 3);
-        for (let i = 0; i < rayCount; i += 1) {
-            const angle = (i / rayCount) * Math.PI * 2;
-            const wobble = 1 + Math.sin(i * 2.17) * 0.14;
-            pos[i * 6] = Math.cos(angle) * 8.3;
-            pos[i * 6 + 1] = Math.sin(angle) * 8.3;
-            pos[i * 6 + 2] = 0;
-            pos[i * 6 + 3] = Math.cos(angle) * 12.5 * wobble;
-            pos[i * 6 + 4] = Math.sin(angle) * 12.5 * wobble;
-            pos[i * 6 + 5] = 0;
+    const clock = useRef(0);
+    const { dir, seed } = useMemo(() => {
+        const rand = seededRandom(0x3a1d);
+        const d = new Float32Array(WIND_COUNT * 3);
+        const sd = new Float32Array(WIND_COUNT * 2);
+        for (let i = 0; i < WIND_COUNT; i += 1) {
+            const theta = rand() * Math.PI * 2;
+            // Плотнее у экватора звезды: так поток читается диском вокруг
+            // Солнца, а не ежом во все стороны
+            const z = (rand() * 2 - 1) * (rand() < 0.7 ? 0.35 : 1);
+            const r = Math.sqrt(1 - z * z);
+            d[i * 3] = r * Math.cos(theta);
+            d[i * 3 + 1] = z;
+            d[i * 3 + 2] = r * Math.sin(theta);
+            sd[i * 2] = rand();
+            sd[i * 2 + 1] = rand();
         }
-        return pos;
+        return { dir: d, seed: sd };
     }, []);
+    const positions = useMemo(() => new Float32Array(WIND_COUNT * 3), []);
 
-    const particles = useMemo(() => {
-        const pos = new Float32Array(particleCount * 3);
-        for (let i = 0; i < particleCount; i += 1) {
-            const angle = (i / particleCount) * Math.PI * 2;
-            const radius = 9 + (i % 23) * 0.55;
-            pos[i * 3] = Math.cos(angle) * radius;
-            pos[i * 3 + 1] = Math.sin(angle) * radius;
-            pos[i * 3 + 2] = Math.sin(i * 1.7) * 0.65;
-        }
-        return pos;
-    }, []);
+    const uniforms = useMemo(() => ({
+        uTime: { value: 0 },
+        uSpeed: { value: 0.14 },
+        uScale: { value: 400 },
+        uInner: { value: 4.6 },
+        uLength: { value: 15 },
+        uColor: { value: WIND_SUN.clone() },
+        uOpacity: { value: 0.9 },
+    }), []);
 
     useFrame((state, delta) => {
-        if (rayRef.current) {
-            rayRef.current.rotation.z += delta * (shielded ? 0.025 : 0.12);
-            rayRef.current.material.opacity = shielded
-                ? 0.06
-                : 0.18 + Math.sin(state.clock.elapsedTime * 1.8) * 0.05;
-        }
-        if (particleRef.current) {
-            particleRef.current.rotation.z -= delta * (shielded ? 0.04 : 0.35);
-            particleRef.current.material.opacity = shielded ? 0.1 : 0.7;
-        }
+        const k = Math.min(1, delta * 1.6);
+        clock.current += delta * (shielded ? 0.25 : 1);
+        uniforms.uTime.value = clock.current;
+        uniforms.uScale.value = pointScale(state);
+        uniforms.uLength.value += ((shielded ? 4.5 : 15) - uniforms.uLength.value) * k;
+        uniforms.uOpacity.value += ((shielded ? 0.45 : 0.9) - uniforms.uOpacity.value) * k;
+        uniforms.uColor.value.lerp(shielded ? WIND_SHIELD : WIND_SUN, k);
     });
 
     return (
-        <group
-            onClick={(e) => { e.stopPropagation(); onSelect('radiation'); }}
-            onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-            onPointerOut={() => { document.body.style.cursor = 'auto'; }}
-        >
-            <lineSegments ref={rayRef}>
+        <group>
+            <points raycast={() => null} frustumCulled={false}>
                 <bufferGeometry>
-                    <bufferAttribute attach="attributes-position" args={[rays, 3]} />
+                    <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+                    <bufferAttribute attach="attributes-aDir" args={[dir, 3]} />
+                    <bufferAttribute attach="attributes-aSeed" args={[seed, 2]} />
                 </bufferGeometry>
-                <lineBasicMaterial
-                    color={shielded ? '#556677' : '#fff0a0'}
+                <shaderMaterial
+                    vertexShader={windVertex}
+                    fragmentShader={glowPointFragment}
+                    uniforms={uniforms}
                     transparent
-                    opacity={0.26}
                     depthWrite={false}
                     blending={THREE.AdditiveBlending}
-                />
-            </lineSegments>
-            <points ref={particleRef}>
-                <bufferGeometry>
-                    <bufferAttribute attach="attributes-position" args={[particles, 3]} />
-                </bufferGeometry>
-                <pointsMaterial
-                    color={shielded ? '#7790aa' : '#fff4aa'}
-                    size={0.5}
-                    transparent
-                    opacity={0.7}
-                    depthWrite={false}
-                    sizeAttenuation
-                    blending={THREE.AdditiveBlending}
-                    map={tex}
-                    alphaMap={tex}
-                    alphaTest={0.01}
                 />
             </points>
+            {/* Попасть по отдельной частице нельзя: зона клика — кольцо
+                вокруг звезды, с дырой под само Солнце */}
+            <Billboard>
+                <mesh
+                    visible={false}
+                    onClick={(e) => { e.stopPropagation(); onSelect('radiation'); }}
+                    onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
+                    onPointerOut={() => { document.body.style.cursor = 'auto'; }}
+                >
+                    <ringGeometry args={[8.5, 12.5, 32]} />
+                    <meshBasicMaterial side={THREE.DoubleSide} />
+                </mesh>
+            </Billboard>
             <BillboardText
                 position={[0, -10.4, 0]}
                 fontSize={0.5}
@@ -602,6 +619,8 @@ function OrbitRing({ rx, rz, color = '#ffffff', opacity = 0.12, broken = false }
  * по своим настоящим соотношениям, поэтому Юпитер ползёт по орбите медленно,
  * но крутится вокруг оси быстрее всех.
  */
+const LABEL_POS = new THREE.Vector3();
+
 function OrbitingPlanet({
     factorId,
     label,
@@ -624,9 +643,25 @@ function OrbitingPlanet({
 }) {
     const groupRef = useRef();
     const bodyRef = useRef();
+    const labelRef = useRef();
     const angle = useRef(startAngle);
 
-    useFrame((_, delta) => {
+    useFrame(({ camera }, delta) => {
+        // Планета на вытянутой орбите проходит у самой камеры, и её подпись
+        // разрасталась на полэкрана поверх подсказок. Вблизи подпись тает:
+        // планету и так видно, а прочитать гигантские буквы всё равно нельзя.
+        const labels = labelRef.current;
+        if (labels && groupRef.current) {
+            const d = camera.position.distanceTo(groupRef.current.getWorldPosition(LABEL_POS));
+            const k = THREE.MathUtils.clamp((d - radius * 6 - 14) / 10, 0, 1);
+            labels.visible = k > 0.01;
+            labels.traverse((o) => {
+                if ('fillOpacity' in o) {
+                    o.fillOpacity = k;
+                    o.outlineOpacity = k;
+                }
+            });
+        }
         angle.current += delta * orbitSpeed;
         if (groupRef.current) {
             groupRef.current.position.set(
@@ -657,21 +692,12 @@ function OrbitingPlanet({
                     />
                 </mesh>
                 {atmosphere && (
-                    <mesh scale={1.06}>
-                        <sphereGeometry args={[radius, 24, 16]} />
-                        <meshBasicMaterial
-                            color={atmosphere}
-                            transparent
-                            opacity={0.12}
-                            side={THREE.BackSide}
-                            depthWrite={false}
-                            blending={THREE.AdditiveBlending}
-                        />
-                    </mesh>
+                    <Rim radius={radius} color={atmosphere} intensity={1.6} power={3.2} scale={1.035} />
                 )}
                 {children}
             </group>
 
+            <group ref={labelRef}>
             <BillboardText
                 position={[0, radius + 1.2, 0]}
                 fontSize={Math.min(1.3, Math.max(0.95, radius * 0.4))}
@@ -692,6 +718,7 @@ function OrbitingPlanet({
             >
                 {reversed ? reverseSubtitle : subtitle}
             </BillboardText>
+            </group>
         </group>
     );
 }
@@ -862,7 +889,7 @@ function EarthSystem({ reversedFactors, onSelect }) {
             <Moon reversed={!!reversedFactors.moonlight} onSelect={onSelect} />
 
             <BillboardText
-                position={[0, RADIUS + 1.5, 0]}
+                position={[0, RADIUS + 2.05, 0]}
                 fontSize={0.9}
                 color="#ffffff"
                 anchorX="center"
@@ -872,8 +899,8 @@ function EarthSystem({ reversedFactors, onSelect }) {
                 Земля
             </BillboardText>
             <BillboardText
-                position={[0, RADIUS + 1.05, 0]}
-                fontSize={0.95}
+                position={[0, RADIUS + 1.15, 0]}
+                fontSize={0.7}
                 color={antigravity ? '#ff6644' : '#54b6ff'}
                 anchorX="center"
                 anchorY="bottom"
@@ -885,34 +912,44 @@ function EarthSystem({ reversedFactors, onSelect }) {
     );
 }
 
+/**
+ * Гравитационное поле: светящиеся по краю оболочки стягиваются к планете
+ * (или разлетаются прочь при реверсе). Проволочная сфера выглядела
+ * отладочной сеткой — ободок читается полем, а не геометрией.
+ */
 function GravityShell({ reversed, radius }) {
-    const meshRef = useRef();
+    const groupRef = useRef();
+    const shells = useMemo(() => [0, 1].map(() => rimUniforms('#5d8cff', 0, 2.4, 0)), []);
 
-    useFrame((_, delta) => {
-        const mesh = meshRef.current;
-        if (!mesh) return;
-        const speed = reversed ? 1.0 : -1.0;
-        const next = mesh.scale.x + delta * speed;
-        const wrapped = reversed
-            ? (next > 2.6 ? 1.0 : next)
-            : (next < 1.0 ? 2.6 : next);
-        mesh.scale.setScalar(wrapped);
-
-        const alpha = reversed ? (2.6 - wrapped) / 1.6 : (wrapped - 1.0) / 1.6;
-        mesh.material.opacity = Math.max(0, Math.min(0.1, alpha * 0.1));
+    useFrame((state) => {
+        const group = groupRef.current;
+        if (!group) return;
+        const t = state.clock.elapsedTime;
+        shells.forEach((u, i) => {
+            const phase = (t * 0.6 + i * 0.5) % 1;
+            const k = reversed ? phase : 1 - phase;
+            group.children[i].scale.setScalar(1 + k * 1.6);
+            u.uIntensity.value = Math.sin(phase * Math.PI) * 0.55;
+            u.uColor.value.set(reversed ? '#ff4422' : '#5d8cff');
+        });
     });
 
     return (
-        <mesh ref={meshRef}>
-            <sphereGeometry args={[radius * 1.12, 16, 10]} />
-            <meshBasicMaterial
-                color={reversed ? '#ff4422' : '#3a6fd8'}
-                wireframe
-                transparent
-                opacity={0.1}
-                depthWrite={false}
-            />
-        </mesh>
+        <group ref={groupRef}>
+            {shells.map((u, i) => (
+                <mesh key={i} raycast={() => null}>
+                    <sphereGeometry args={[radius * 1.12, 48, 32]} />
+                    <shaderMaterial
+                        vertexShader={rimVertex}
+                        fragmentShader={rimFragment}
+                        uniforms={u}
+                        transparent
+                        depthWrite={false}
+                        blending={THREE.AdditiveBlending}
+                    />
+                </mesh>
+            ))}
+        </group>
     );
 }
 
@@ -920,67 +957,90 @@ function GravityShell({ reversed, radius }) {
 // КОМЕТА И МЕТАФИЗИЧЕСКИЕ ФАКТОРЫ
 // ═══════════════════════════════════════════════════════════
 
+const COMET_COUNT = 1800;
+const COMET_ION = 800;
+const COMET_POS = new THREE.Vector3();
+const COMET_VEL = new THREE.Vector3();
+const COMET_SIDE = new THREE.Vector3();
+
+/**
+ * Комета. Хвост раньше был следом из 220 точек вдоль пути: на быстрой
+ * орбите он растягивался пунктиром через полсистемы. Настоящий хвост
+ * всегда смотрит от Солнца и длиннее у перигелия.
+ */
 function Comet({ slowed, onSelect }) {
     const groupRef = useRef();
-    const tailRef = useRef();
     const angle = useRef(0);
+    const clock = useRef(0);
     const tex = useMemo(() => circleSprite(), []);
-    const tailCount = 220;
 
-    const tailPositions = useMemo(() => new Float32Array(tailCount * 3), []);
-    const history = useMemo(
-        () => Array.from({ length: tailCount }, () => new THREE.Vector3()),
-        [],
-    );
-    const cursor = useRef(0);
-    const initialised = useRef(false);
+    const seeds = useMemo(() => {
+        const rand = seededRandom(0xc0e7);
+        const g = () => (rand() + rand() + rand() - 1.5) * 0.9;
+        const a = new Float32Array(COMET_COUNT * 4);
+        for (let i = 0; i < COMET_COUNT; i += 1) {
+            a[i * 4] = rand();
+            a[i * 4 + 1] = g();
+            a[i * 4 + 2] = g();
+            a[i * 4 + 3] = i < COMET_ION ? 1 : 0;
+        }
+        return a;
+    }, []);
+    const positions = useMemo(() => new Float32Array(COMET_COUNT * 3), []);
 
-    useFrame((_, delta) => {
+    const uniforms = useMemo(() => ({
+        uTime: { value: 0 },
+        uScale: { value: 400 },
+        uLength: { value: 18 },
+        uHead: { value: new THREE.Vector3() },
+        uAnti: { value: new THREE.Vector3(1, 0, 0) },
+        uBack: { value: new THREE.Vector3(0, 0, 1) },
+        uSide: { value: new THREE.Vector3(0, 1, 0) },
+        uIon: { value: new THREE.Color('#9fd8ff').multiplyScalar(1.6) },
+        uDust: { value: new THREE.Color('#ffe6b8') },
+        uOpacity: { value: 1 },
+    }), []);
+
+    useFrame((state, delta) => {
         angle.current += delta * (slowed ? 0.06 : 0.4);
+        clock.current += delta * (slowed ? 0.3 : 1);
         const a = angle.current;
-        const x = Math.cos(a) * 78;
-        const rawZ = Math.sin(a) * 52;
         const tilt = 0.35;
-        const y = rawZ * Math.sin(tilt);
-        const z = rawZ * Math.cos(tilt);
+        const rawZ = Math.sin(a) * 52;
+        COMET_POS.set(Math.cos(a) * 78, rawZ * Math.sin(tilt), rawZ * Math.cos(tilt));
+        const vz = Math.cos(a) * 52;
+        COMET_VEL.set(-Math.sin(a) * 78, vz * Math.sin(tilt), vz * Math.cos(tilt)).normalize();
 
-        if (groupRef.current) groupRef.current.position.set(x, y, z);
+        if (groupRef.current) groupRef.current.position.copy(COMET_POS);
 
-        // При первом кадре хвост стягивается в текущую точку, иначе он тянется из центра
-        if (!initialised.current) {
-            history.forEach((v) => v.set(x, y, z));
-            initialised.current = true;
-        }
-
-        cursor.current = (cursor.current - 1 + tailCount) % tailCount;
-        history[cursor.current].set(x, y, z);
-
-        for (let i = 0; i < tailCount; i += 1) {
-            const item = history[(cursor.current + i) % tailCount];
-            tailPositions[i * 3] = item.x;
-            tailPositions[i * 3 + 1] = item.y;
-            tailPositions[i * 3 + 2] = item.z;
-        }
-        if (tailRef.current) tailRef.current.geometry.attributes.position.needsUpdate = true;
+        const dist = COMET_POS.length();
+        uniforms.uTime.value = clock.current;
+        uniforms.uScale.value = pointScale(state);
+        uniforms.uHead.value.copy(COMET_POS);
+        uniforms.uAnti.value.copy(COMET_POS).normalize();
+        uniforms.uBack.value.copy(COMET_VEL).negate();
+        COMET_SIDE.crossVectors(uniforms.uAnti.value, uniforms.uBack.value);
+        if (COMET_SIDE.lengthSq() < 1e-4) COMET_SIDE.set(0, 1, 0);
+        uniforms.uSide.value.copy(COMET_SIDE.normalize());
+        // У Солнца хвост вырастает: лёд испаряется сильнее
+        uniforms.uLength.value = 40 * Math.pow(52 / dist, 1.5) * (slowed ? 0.6 : 1);
+        uniforms.uOpacity.value += ((slowed ? 0.45 : 1) - uniforms.uOpacity.value) * Math.min(1, delta * 2);
     });
 
     return (
         <>
-            <points ref={tailRef}>
+            <points raycast={() => null} frustumCulled={false}>
                 <bufferGeometry>
-                    <bufferAttribute attach="attributes-position" args={[tailPositions, 3]} />
+                    <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+                    <bufferAttribute attach="attributes-aSeed" args={[seeds, 4]} />
                 </bufferGeometry>
-                <pointsMaterial
-                    size={0.6}
-                    color={slowed ? '#4466aa' : '#aaddff'}
+                <shaderMaterial
+                    vertexShader={cometVertex}
+                    fragmentShader={cometFragment}
+                    uniforms={uniforms}
                     transparent
-                    opacity={0.6}
                     depthWrite={false}
-                    sizeAttenuation
                     blending={THREE.AdditiveBlending}
-                    map={tex}
-                    alphaMap={tex}
-                    alphaTest={0.01}
                 />
             </points>
             <group
@@ -990,19 +1050,21 @@ function Comet({ slowed, onSelect }) {
                 onPointerOut={() => { document.body.style.cursor = 'auto'; }}
             >
                 <mesh>
-                    <sphereGeometry args={[0.62, 20, 16]} />
-                    <meshBasicMaterial color="#ffffff" />
+                    <sphereGeometry args={[0.32, 20, 16]} />
+                    <meshBasicMaterial color="#ffffff" toneMapped={false} />
                 </mesh>
-                <mesh>
-                    <sphereGeometry args={[1.5, 16, 12]} />
-                    <meshBasicMaterial
-                        color={slowed ? '#2244aa' : '#88ccff'}
+                {/* Кома — облако газа вокруг ядра */}
+                <sprite scale={[4.2, 4.2, 1]}>
+                    <spriteMaterial
+                        map={tex}
+                        color={slowed ? '#3355aa' : '#b8e4ff'}
                         transparent
-                        opacity={0.18}
+                        opacity={0.55}
                         depthWrite={false}
+                        toneMapped={false}
                         blending={THREE.AdditiveBlending}
                     />
-                </mesh>
+                </sprite>
                 <BillboardText
                     position={[0, 2.4, 0]}
                     fontSize={0.62}

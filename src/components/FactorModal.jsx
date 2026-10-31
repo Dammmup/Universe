@@ -84,9 +84,9 @@ export default function FactorModal() {
                     aria-label={`Переключить на ${isReversed ? factor.name : factor.reverseName}`}
                 >
                     <span
-                        className={`absolute top-1 bottom-1 w-[calc(50%-0.25rem)] rounded-full transition-all duration-500 ease-out ${isReversed
-                            ? 'left-[calc(50%+0rem)] bg-cyan-400/90'
-                            : 'left-1 bg-fuchsia-400/90'}`}
+                        className={`absolute top-1 bottom-1 w-[calc(50%-0.25rem)] rounded-full left-1 transition-[transform,background-color] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${isReversed
+                            ? 'translate-x-full bg-cyan-400/90'
+                            : 'translate-x-0 bg-fuchsia-400/90'}`}
                     />
                     <span className={`relative z-10 py-2 px-2 truncate transition-colors ${isReversed ? 'text-white/50' : 'text-black font-semibold'}`}>
                         {factor.name}

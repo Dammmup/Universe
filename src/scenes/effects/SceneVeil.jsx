@@ -18,6 +18,7 @@ export default function SceneVeil() {
     const shift = useStore((s) => s.shift);
     const commitShift = useStore((s) => s.commitShift);
     const endShift = useStore((s) => s.endShift);
+    const calm = useStore((s) => s.calm);
     const meshRef = useRef();
     const { camera, invalidate } = useThree();
 
@@ -34,7 +35,7 @@ export default function SceneVeil() {
     useEffect(() => {
         if (!shift) return undefined;
 
-        const preset = veilPreset(shift.kind);
+        const preset = veilPreset(shift.kind, calm);
         uniforms.uCoreColor.value.set(preset.core);
         uniforms.uEdgeColor.value.set(preset.edge);
         uniforms.uStreaks.value = preset.streaks;
@@ -61,7 +62,7 @@ export default function SceneVeil() {
         return () => {
             tl.kill();
         };
-    }, [shift, uniforms, commitShift, endShift, invalidate]);
+    }, [shift, calm, uniforms, commitShift, endShift, invalidate]);
 
     useFrame((state) => {
         const mesh = meshRef.current;

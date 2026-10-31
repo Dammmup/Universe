@@ -148,7 +148,7 @@ export default function FinaleSummary() {
                             <span className="text-white/40">{s.count}/{s.total}</span>
                         </div>
                         <div className="h-1 rounded-full bg-white/10 overflow-hidden">
-                            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${(100 * s.count) / s.total}%`, background: s.tone }} />
+                            <div className="h-full w-full origin-left rounded-full transition-transform duration-700 ease-out" style={{ transform: `scaleX(${s.count / s.total})`, background: s.tone }} />
                         </div>
                     </div>
                 ))}

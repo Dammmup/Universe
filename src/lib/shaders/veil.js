@@ -39,12 +39,25 @@ void main() {
 
     // Радиальные полосы: каждый сектор живёт со своей скоростью, поэтому
     // движение читается как пролёт сквозь среду, а не как вращение текстуры.
+    // Сектор целиком заливал прямоугольник, который к краю кадра
+    // расширялся в плиту. Внутри сектора луч — тонкая линия с гауссовым
+    // профилем, а два слоя с разной густотой дают глубину.
     float streak = 0.0;
     if (uStreaks > 0.001) {
-        float id = floor((ang + 3.14159265) / 6.28318530 * 110.0);
-        float rnd = hash(id);
-        float band = fract(d * (1.1 + rnd * 1.4) - uTime * (0.55 + rnd * 1.9));
-        streak = pow(1.0 - band, 16.0) * smoothstep(0.04, 0.8, d) * (0.4 + rnd * 0.9);
+        for (int layer = 0; layer < 2; layer++) {
+            float count = layer == 0 ? 150.0 : 64.0;
+            float a = (ang + 3.14159265) / 6.28318530 * count;
+            float id = floor(a) + float(layer) * 517.0;
+            float rnd = hash(id);
+            float across = (fract(a) - 0.5 - (hash(id + 3.1) - 0.5) * 0.5) / (0.07 + rnd * 0.08);
+            float line = exp(-across * across);
+            float band = fract(d * (0.9 + rnd * 1.2) - uTime * (0.5 + rnd * 1.7) - rnd);
+            // Яркая голова и длинный хвост к центру
+            float head = pow(band, 10.0) * smoothstep(1.0, 0.94, band);
+            float live = step(0.35, hash(id + 7.7));
+            streak += line * head * live * (0.45 + rnd * 0.8) * (layer == 0 ? 1.0 : 0.6);
+        }
+        streak *= smoothstep(0.06, 0.75, d);
     }
 
     // Диафрагма: край заливки уходит за пределы кадра к uProgress = 1

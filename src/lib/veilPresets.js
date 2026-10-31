@@ -1,3 +1,5 @@
+import { calmVeil } from './motion';
+
 /**
  * Тайминги и палитра переходов между слоями.
  * cover — сколько кадр заливается, hold — пауза на полной заливке (в ней
@@ -54,4 +56,11 @@ export const VEIL_PRESETS = {
     },
 };
 
-export const veilPreset = (kind) => VEIL_PRESETS[kind] ?? VEIL_PRESETS.dive;
+/**
+ * Пресет перехода. В спокойном режиме (`calm`) заливка короче, а полосы
+ * светового прыжка убраны — см. `lib/motion.js`.
+ */
+export const veilPreset = (kind, calm = false) => {
+    const preset = VEIL_PRESETS[kind] ?? VEIL_PRESETS.dive;
+    return calm ? calmVeil(preset) : preset;
+};

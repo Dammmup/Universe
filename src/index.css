@@ -5,7 +5,29 @@
 @layer base {
   body {
     @apply bg-black text-white overflow-x-hidden;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+
+  /* Нажатие отвечает сразу, на pointer-down, а не после отпускания.
+     Свойство scale складывается с transform, поэтому не сбивает
+     центрирование кнопок через translate. */
+  button:active:not(:disabled) {
+    scale: 0.97;
+  }
+}
+
+/* «Меньше движения»: окна не всплывают из глубины, а просто проявляются */
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise-in {
+    animation-name: fade-in;
+  }
+
+  .animate-scroll-cue {
+    animation: none;
+  }
+
+  button:active:not(:disabled) {
+    scale: none;
   }
 }
 

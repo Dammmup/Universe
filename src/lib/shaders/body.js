@@ -79,6 +79,22 @@ float segDist(vec3 p, vec3 a, vec3 b) {
 }
 `;
 
+
+/**
+ * Имитация подповерхностного рассеяния. Мрамор и живая ткань пропускают
+ * свет под поверхность: по краю силуэта он выходит тёплым ореолом, а тени
+ * не проваливаются в серое. Без этого фигура читалась гипсовой отливкой.
+ */
+function scatterChunk(tint, strength) {
+    return `#include <aomap_fragment>
+                {
+                    vec3 sssV = normalize(vViewPosition);
+                    float sssRim = pow(1.0 - clamp(dot(normal, sssV), 0.0, 1.0), 2.5);
+                    // Свет, прошедший сквозь тонкие края, и мягкий подъём теней
+                    totalEmissiveRadiance += diffuseColor.rgb * vec3(${tint}) * (sssRim * ${strength} + 0.025);
+                }`;
+}
+
 /**
  * Кожа. uniforms — объект с числовыми uniform-ами, которые сцена ведёт к
  * целям сама: uBurn (ожог), uHeat (перегрев), uWrinkle (морщины), uScales
@@ -205,7 +221,8 @@ export function createSkinMaterial(uniforms, { clippingPlanes } = {}) {
                 totalEmissiveRadiance += vec3(1.0, 0.36, 0.12) * uHeat * glow * smoothstep(0.3, 0.8, bodyNoise(P * 4.0 + uTime * 0.2)) * 0.45;
                 // Пот при перегреве: влажные блики вспыхивают и гаснут
                 float sweat = step(0.995, bodyHash(floor(P * 70.0))) * (0.5 + 0.5 * sin(uTime * 2.0 + P.y * 10.0));
-                totalEmissiveRadiance += vec3(0.9, 0.9, 1.0) * sweat * uHeat * 0.6;`);
+                totalEmissiveRadiance += vec3(0.9, 0.9, 1.0) * sweat * uHeat * 0.6;`)
+            .replace('#include <aomap_fragment>', scatterChunk('1.0, 0.6, 0.45', '0.14'));
     };
     material.customProgramCacheKey = () => 'body-skin-sdf';
     return material;
@@ -281,7 +298,8 @@ export function createMuscleMaterial(uniforms, { clippingPlanes } = {}) {
                 roughnessFactor = mix(roughnessFactor, 0.8, uOssify);`)
             .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
                 float beat = 0.5 + 0.5 * sin(uTime * 2.2 + vBodyPos.y * 1.5);
-                totalEmissiveRadiance += vec3(0.5, 0.06, 0.04) * uPower * beat * (1.0 - uOssify) * 0.35;`);
+                totalEmissiveRadiance += vec3(0.5, 0.06, 0.04) * uPower * beat * (1.0 - uOssify) * 0.35;`)
+            .replace('#include <aomap_fragment>', scatterChunk('1.0, 0.4, 0.32', '0.16'));
     };
     material.customProgramCacheKey = () => 'body-muscle';
     return material;

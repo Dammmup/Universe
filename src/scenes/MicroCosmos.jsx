@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
@@ -8,6 +8,10 @@ import { fresnelFragment, fresnelVertex } from '../lib/shaders/life';
 import FactorMarker from './effects/FactorMarker';
 
 const _dummy = new THREE.Object3D();
+const _color = new THREE.Color();
+
+/** Сколько муфт миелина сидит на аксоне. */
+const SHEATH_COUNT = 8;
 
 function Label({ position, children, color = '#e8fbff', size = 0.22 }) {
     return (
@@ -159,6 +163,24 @@ function CellMembrane({ reversed }) {
         return items;
     }, []);
 
+    const poreRef = useRef();
+
+    // Матрицы пор пересчитываются только при смене реверса: сами поры
+    // неподвижны, дышит вся оболочка целиком
+    useLayoutEffect(() => {
+        const mesh = poreRef.current;
+        if (!mesh) return;
+        const widen = reversed ? 0.22 / 0.13 : 1;
+        pores.forEach((p, i) => {
+            _dummy.position.set(p.x, p.y, p.z);
+            _dummy.quaternion.set(...p.quat);
+            _dummy.scale.set(widen, widen, 1);
+            _dummy.updateMatrix();
+            mesh.setMatrixAt(i, _dummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+    }, [pores, reversed]);
+
     useFrame((state) => {
         if (!group.current) return;
         const breath = 1 + Math.sin(state.clock.elapsedTime * 0.85) * (reversed ? 0.012 : 0.028);
@@ -196,21 +218,19 @@ function CellMembrane({ reversed }) {
                 alpha={reversed ? 0.04 : 0.08}
                 gain={0.8}
             />
-            {pores.map((p, i) => (
-                <mesh
-                    key={i}
-                    position={[p.x, p.y, p.z]}
-                    quaternion={p.quat}
-                >
-                    <torusGeometry args={[reversed ? 0.22 : 0.13, 0.028, 8, 18]} />
-                    <meshBasicMaterial
-                        color={reversed ? '#8a9aa3' : '#b8fff4'}
-                        transparent
-                        opacity={0.45}
-                        depthWrite={false}
-                    />
-                </mesh>
-            ))}
+            {/* Двадцать две поры — один инстанс: геометрия и материал у них
+                общие, отличаются только положением и разворотом по нормали.
+                Реверс меняет диаметр, поэтому растяжение идёт масштабом
+                матрицы, а не пересборкой кольца. */}
+            <instancedMesh ref={poreRef} args={[undefined, undefined, pores.length]} frustumCulled={false} raycast={() => null}>
+                <torusGeometry args={[0.13, 0.028, 8, 18]} />
+                <meshBasicMaterial
+                    color={reversed ? '#8a9aa3' : '#b8fff4'}
+                    transparent
+                    opacity={0.45}
+                    depthWrite={false}
+                />
+            </instancedMesh>
             {/* Подпись оболочки даёт метка фактора «МЕМБРАНА» чуть ниже:
                 два названия одного и того же рядом только спорили друг с другом */}
         </group>
@@ -248,12 +268,32 @@ function DNAHelix({ reversed }) {
         };
     }, []);
 
+    const baseRef = useRef();
+    const baseColors = useMemo(() => ['#62ff9f', '#ff66cf', '#ffe76d', '#7cf7ff'], []);
+
+    useLayoutEffect(() => {
+        const mesh = baseRef.current;
+        if (!mesh) return;
+        bases.forEach((b, i) => {
+            _dummy.position.copy(b.position);
+            _dummy.rotation.set(...b.rotation);
+            _dummy.scale.setScalar(1);
+            _dummy.updateMatrix();
+            mesh.setMatrixAt(i, _dummy.matrix);
+            // Свечение оснований раньше держал emissive, но он общий на весь
+            // инстанс. Цвет идёт мимо тонмаппинга — свечение подхватывает его
+            // так же, как подхватывало эмиссию.
+            _color.set(reversed ? '#555555' : baseColors[b.kind]);
+            mesh.setColorAt(i, _color);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }, [bases, baseColors, reversed]);
+
     useFrame((_, delta) => {
         if (!group.current) return;
         group.current.rotation.y += delta * (reversed ? 0.04 : 0.28);
     });
-
-    const baseColors = ['#62ff9f', '#ff66cf', '#ffe76d', '#7cf7ff'];
 
     return (
         <group ref={group}>
@@ -275,18 +315,18 @@ function DNAHelix({ reversed }) {
                     roughness={0.4}
                 />
             </mesh>
-            {bases.map((b, i) => (
-                <mesh key={i} position={b.position} rotation={b.rotation}>
-                    <boxGeometry args={[0.72, 0.045, 0.05]} />
-                    <meshStandardMaterial
-                        color={reversed ? '#555' : baseColors[b.kind]}
-                        emissive={reversed ? '#000' : baseColors[b.kind]}
-                        emissiveIntensity={reversed ? 0 : 0.35}
-                        transparent
-                        opacity={reversed ? 0.25 : 0.9}
-                    />
-                </mesh>
-            ))}
+            {/* Пары оснований — один инстанс на всю спираль. Четыре цвета
+                нуклеотидов идут через instanceColor: материал общий, а
+                раскраска у каждой ступеньки своя. */}
+            <instancedMesh ref={baseRef} args={[undefined, undefined, bases.length]} frustumCulled={false} raycast={() => null}>
+                <boxGeometry args={[0.72, 0.045, 0.05]} />
+                <meshStandardMaterial
+                    emissiveIntensity={reversed ? 0 : 0.35}
+                    transparent
+                    opacity={reversed ? 0.25 : 0.9}
+                    toneMapped={false}
+                />
+            </instancedMesh>
         </group>
     );
 }
@@ -333,6 +373,50 @@ function beanGeometry() {
     return new THREE.LatheGeometry(pts, 28);
 }
 
+const mitoVertex = /* glsl */ `
+varying vec3 vLocal;
+varying vec3 vNormalV;
+varying vec3 vViewV;
+void main() {
+    vLocal = position;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vNormalV = normalize(normalMatrix * normal);
+    vViewV = normalize(-mv.xyz);
+    gl_Position = projectionMatrix * mv;
+}
+`;
+
+/**
+ * Митохондрия: полупрозрачная двойная мембрана, внутри — складки крист,
+ * по которым бежит волна синтеза АТФ. Прежде это была сплошная оранжевая
+ * капля с пятью кольцами поверх — читалась кляксой, а не органеллой.
+ */
+const mitoFragment = /* glsl */ `
+uniform float uTime;
+uniform float uLife;
+uniform float uSeed;
+varying vec3 vLocal;
+varying vec3 vNormalV;
+varying vec3 vViewV;
+void main() {
+    float facing = abs(dot(normalize(vNormalV), normalize(vViewV)));
+    float rim = pow(1.0 - facing, 2.2);
+    // Кристы — волнистые перегородки поперёк длинной оси
+    float y = vLocal.y * 9.0 + sin(vLocal.x * 14.0 + uSeed) * 0.55 + sin(vLocal.z * 11.0) * 0.35;
+    float fold = 1.0 - abs(fract(y) - 0.5) * 2.0;
+    // В угасшей клетке кристы рвутся и тускнеют
+    float broken = mix(1.0, step(0.45, fract(sin(floor(y) * 91.7 + uSeed) * 437.5)), 1.0 - uLife);
+    float cristae = smoothstep(0.72, 0.95, fold) * facing * broken;
+    float wave = exp(-pow(fract(vLocal.y * 0.6 - uTime * 0.35 + uSeed) - 0.5, 2.0) * 40.0) * uLife;
+
+    vec3 matrix = mix(vec3(0.32, 0.22, 0.12), vec3(1.0, 0.38, 0.06), uLife);
+    vec3 ridge = mix(vec3(0.6, 0.52, 0.38), vec3(1.0, 0.66, 0.26), uLife);
+    vec3 col = matrix * (0.5 + 0.45 * facing) + ridge * cristae * (0.65 + wave * 1.6) + vec3(1.0, 0.7, 0.4) * rim * (0.5 + uLife * 0.6);
+    float alpha = clamp(0.45 + cristae * 0.4 + rim * 0.5, 0.0, 1.0);
+    gl_FragColor = vec4(col, alpha);
+}
+`;
+
 function Mitochondria({ reversed }) {
     const group = useRef();
     const geom = useMemo(() => beanGeometry(), []);
@@ -343,13 +427,22 @@ function Mitochondria({ reversed }) {
         { pos: [2.35, 1.05, -0.55], rot: [-0.3, -0.4, 0.5], scale: 0.82 },
         { pos: [1.85, -1.55, 0.7], rot: [0.5, 0.2, 0.3], scale: 0.7 },
     ]), []);
+    const uniforms = useMemo(() => items.map((_, i) => ({
+        uTime: { value: 0 },
+        uLife: { value: 1 },
+        uSeed: { value: i * 2.3 + 0.7 },
+    })), [items]);
 
     useFrame((state, delta) => {
         if (!group.current) return;
+        const t = state.clock.elapsedTime;
         group.current.children.forEach((child, i) => {
             child.rotation.z += delta * (reversed ? 0.05 : 0.18) * (i % 2 ? -1 : 1);
-            const s = items[i].scale * (1 + Math.sin(state.clock.elapsedTime * 2.1 + i) * (reversed ? 0.02 : 0.06));
+            const s = items[i].scale * (1 + Math.sin(t * 2.1 + i) * (reversed ? 0.02 : 0.06));
             child.scale.setScalar(s);
+            const u = uniforms[i];
+            u.uTime.value = t;
+            u.uLife.value = THREE.MathUtils.damp(u.uLife.value, reversed ? 0 : 1, 1.5, delta);
         });
     });
 
@@ -359,31 +452,88 @@ function Mitochondria({ reversed }) {
                 {items.map((item, i) => (
                     <group key={i} position={item.pos} rotation={item.rot}>
                         <mesh geometry={geom}>
-                            <meshStandardMaterial
-                                color={reversed ? '#5f4f32' : '#e8942a'}
-                                emissive={reversed ? '#151005' : '#6a3200'}
-                                emissiveIntensity={reversed ? 0.12 : 0.55}
-                                roughness={0.55}
+                            <shaderMaterial
+                                vertexShader={mitoVertex}
+                                fragmentShader={mitoFragment}
+                                uniforms={uniforms[i]}
                                 transparent
-                                opacity={0.92}
+                                depthWrite={false}
+                                side={THREE.DoubleSide}
                             />
                         </mesh>
-                        {[0, 1, 2, 3, 4].map((ridge) => (
-                            <mesh key={ridge} position={[0, -0.4 + ridge * 0.2, 0]} rotation={[Math.PI / 2, 0, 0]}>
-                                <torusGeometry args={[0.16 - Math.abs(ridge - 2) * 0.02, 0.012, 6, 18]} />
-                                <meshBasicMaterial
-                                    color={reversed ? '#8a7450' : '#ffe08a'}
-                                    transparent
-                                    opacity={0.75}
-                                />
-                            </mesh>
-                        ))}
                     </group>
                 ))}
             </group>
             <Label position={[2.35, 1.85, -0.55]} color={reversed ? '#9b8a6c' : '#ffd179'} size={0.18}>
                 {reversed ? 'ЭНЕРГЕТИЧЕСКИЙ ПРОВАЛ' : 'МИТОХОНДРИИ'}
             </Label>
+        </group>
+    );
+}
+
+/**
+ * Шероховатая эндоплазматическая сеть: волнистые мембраны, обнимающие ядро,
+ * и рибосомы на них. Без неё между ядром и мембраной клетки была пустота
+ * с редкими точками — клетка выглядела пузырём, а не фабрикой.
+ */
+function EndoplasmicReticulum({ reversed }) {
+    const groupRef = useRef();
+    const { curves, dots } = useMemo(() => {
+        const list = [];
+        const pts = [];
+        for (let k = 0; k < 4; k += 1) {
+            const base = 1.82 + k * 0.17;
+            const tilt = new THREE.Euler(0.3 + k * 0.35, k * 0.9, 0.2 - k * 0.15);
+            const curvePts = [];
+            for (let i = 0; i < 64; i += 1) {
+                const a = (i / 64) * Math.PI * 2;
+                const r = base + Math.sin(a * 7 + k * 1.3) * 0.09 + Math.sin(a * 3 - k) * 0.06;
+                const v = new THREE.Vector3(Math.cos(a) * r, Math.sin(a * 5 + k) * 0.12, Math.sin(a) * r).applyEuler(tilt);
+                curvePts.push(v);
+            }
+            const curve = new THREE.CatmullRomCurve3(curvePts, true);
+            list.push(curve);
+            for (let i = 0; i < 90; i += 1) {
+                const p = curve.getPoint(i / 90);
+                pts.push(p.x * 1.012, p.y * 1.012, p.z * 1.012);
+            }
+        }
+        return { curves: list, dots: new Float32Array(pts) };
+    }, []);
+    const tex = useMemo(() => circleSprite(), []);
+
+    useFrame((_, delta) => {
+        if (groupRef.current) groupRef.current.rotation.y += delta * (reversed ? 0.01 : 0.04);
+    });
+
+    return (
+        <group ref={groupRef} position={[-0.15, 0.15, 0]}>
+            {curves.map((curve, i) => (
+                <mesh key={i} raycast={() => null}>
+                    <tubeGeometry args={[curve, 200, 0.022, 6, true]} />
+                    <meshBasicMaterial
+                        color={reversed ? '#5a6470' : '#7fd8ff'}
+                        transparent
+                        opacity={reversed ? 0.18 : 0.32}
+                        depthWrite={false}
+                        blending={THREE.AdditiveBlending}
+                    />
+                </mesh>
+            ))}
+            <points raycast={() => null}>
+                <bufferGeometry>
+                    <bufferAttribute attach="attributes-position" args={[dots, 3]} />
+                </bufferGeometry>
+                <pointsMaterial
+                    color={reversed ? '#6a6470' : '#ffd6a0'}
+                    size={0.06}
+                    map={tex}
+                    transparent
+                    opacity={reversed ? 0.3 : 0.8}
+                    depthWrite={false}
+                    blending={THREE.AdditiveBlending}
+                />
+            </points>
         </group>
     );
 }
@@ -528,6 +678,27 @@ function MyelinAxon({ reversed }) {
         return new THREE.CatmullRomCurve3(pts);
     }, []);
 
+    const sheathRef = useRef();
+
+    useLayoutEffect(() => {
+        const mesh = sheathRef.current;
+        if (!mesh) return;
+        for (let i = 0; i < SHEATH_COUNT; i += 1) {
+            const point = curve.getPointAt((i + 0.5) / SHEATH_COUNT);
+            // Каждая третья муфта при реверсе истончается — демиелинизация
+            const damaged = reversed && i % 3 === 0;
+            _dummy.position.copy(point);
+            _dummy.rotation.set(0, 0, Math.PI / 2);
+            _dummy.scale.set(damaged ? 0.58 : 1, 1, damaged ? 0.58 : 1);
+            _dummy.updateMatrix();
+            mesh.setMatrixAt(i, _dummy.matrix);
+            _color.set(damaged ? '#3d3f43' : '#f6fbff');
+            mesh.setColorAt(i, _color);
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }, [curve, reversed]);
+
     return (
         <group>
             <mesh>
@@ -538,22 +709,17 @@ function MyelinAxon({ reversed }) {
                     emissiveIntensity={0.35}
                 />
             </mesh>
-            {Array.from({ length: 8 }, (_, i) => {
-                const u = (i + 0.5) / 8;
-                const p = curve.getPointAt(u);
-                const damaged = reversed && i % 3 === 0;
-                return (
-                    <mesh key={i} position={p} rotation={[0, 0, Math.PI / 2]}>
-                        <capsuleGeometry args={[damaged ? 0.07 : 0.12, 0.28, 6, 10]} />
-                        <meshStandardMaterial
-                            color={damaged ? '#3d3f43' : '#f6fbff'}
-                            transparent
-                            opacity={damaged ? 0.25 : 0.82}
-                            roughness={0.35}
-                        />
-                    </mesh>
-                );
-            })}
+            {/* Восемь муфт миелина одним инстансом. Повреждённые при реверсе
+                становятся тоньше — это масштаб матрицы, а потемнение уходит
+                в instanceColor. */}
+            <instancedMesh ref={sheathRef} args={[undefined, undefined, SHEATH_COUNT]} frustumCulled={false} raycast={() => null}>
+                <capsuleGeometry args={[0.12, 0.28, 6, 10]} />
+                <meshStandardMaterial
+                    transparent
+                    opacity={reversed ? 0.45 : 0.82}
+                    roughness={0.35}
+                />
+            </instancedMesh>
             {/* Подпись даёт метка фактора «МИЕЛИН» — второй такой же текст
                 рядом читался как сбой рендера */}
         </group>
@@ -602,6 +768,7 @@ export default function MicroCosmos() {
             <CellMembrane reversed={membraneReversed} />
             <Nucleus reversed={dnaReversed} />
             <Mitochondria reversed={mitoReversed} />
+            <EndoplasmicReticulum reversed={proteinReversed} />
             <Ribosome reversed={proteinReversed} />
             <SynapseBridge reversed={synapseReversed} />
             <MyelinAxon reversed={myelinReversed} />

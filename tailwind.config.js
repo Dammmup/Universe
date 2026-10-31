@@ -6,8 +6,12 @@ export default {
     ],
     theme: {
         extend: {
+            // Roboto как веб-шрифт не грузится (файл в public — только для
+            // подписей в 3D), и интерфейс падал в Arial без светлого
+            // начертания: font-light рисовался обычным. Системный шрифт
+            // приходит со всеми весами и оптическими размерами.
             fontFamily: {
-                sans: ['Roboto', 'Inter', 'sans-serif'],
+                sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
             },
             colors: {
                 layer: {
@@ -32,8 +36,14 @@ export default {
                     from: { opacity: '0', transform: 'translateY(24px) scale(0.94)' },
                     to: { opacity: '1', transform: 'translateY(0) scale(1)' },
                 },
+                // Стрелка «крути вниз»: короткий толчок в сторону жеста и пауза
+                'scroll-cue': {
+                    '0%, 60%, 100%': { transform: 'translateY(0)', opacity: '0.7' },
+                    '30%': { transform: 'translateY(6px)', opacity: '1' },
+                },
             },
             animation: {
+                'scroll-cue': 'scroll-cue 2.2s cubic-bezier(0.45, 0, 0.55, 1) infinite',
                 'fade-in': 'fade-in 700ms ease-out both',
                 'rise-in': 'rise-in 900ms cubic-bezier(0.16, 1, 0.3, 1) both',
             }

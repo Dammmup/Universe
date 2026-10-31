@@ -63,6 +63,12 @@ export function starSprite() {
 }
 
 /** Клубящееся облако газа для туманностей — дёшево заменяет полупрозрачные сферы. */
+/**
+ * Туманность. Прежде — девяносто размытых кругов: в кадре они сливались в
+ * ровное цветное пятно с квадратными краями. Теперь яркость — шум с
+ * искажением координат: волокна, сгустки и тёмные пылевые прожилки, а
+ * край размыт неровно, по тому же шуму.
+ */
 export function nebulaSprite() {
     return cached('nebula', () => {
         const size = 256;
@@ -70,31 +76,66 @@ export function nebulaSprite() {
         canvas.width = size;
         canvas.height = size;
         const ctx = canvas.getContext('2d');
-        const rand = (min, max) => min + Math.random() * (max - min);
 
-        ctx.globalCompositeOperation = 'lighter';
-        for (let i = 0; i < 90; i += 1) {
-            const x = rand(size * 0.15, size * 0.85);
-            const y = rand(size * 0.15, size * 0.85);
-            const r = rand(size * 0.05, size * 0.3);
-            const alpha = rand(0.03, 0.14);
-            const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-            g.addColorStop(0, `rgba(255,255,255,${alpha})`);
-            g.addColorStop(1, 'rgba(255,255,255,0)');
-            ctx.fillStyle = g;
-            ctx.beginPath();
-            ctx.arc(x, y, r, 0, Math.PI * 2);
-            ctx.fill();
+        // Решётка случайных значений для value-noise
+        const G = 64;
+        const grid = new Float32Array(G * G);
+        let seed = 0x1e5;
+        const rnd = () => {
+            seed = (seed * 16807) % 2147483647;
+            return seed / 2147483647;
+        };
+        for (let i = 0; i < grid.length; i += 1) grid[i] = rnd();
+        const smooth = (t) => t * t * (3 - 2 * t);
+        const noise = (x, y) => {
+            const xi = Math.floor(x);
+            const yi = Math.floor(y);
+            const xf = smooth(x - xi);
+            const yf = smooth(y - yi);
+            const at = (i, j) => grid[(((j % G) + G) % G) * G + (((i % G) + G) % G)];
+            const top = at(xi, yi) + (at(xi + 1, yi) - at(xi, yi)) * xf;
+            const bottom = at(xi, yi + 1) + (at(xi + 1, yi + 1) - at(xi, yi + 1)) * xf;
+            return top + (bottom - top) * yf;
+        };
+        const fbm = (x, y) => {
+            let f = 0;
+            let a = 0.5;
+            for (let o = 0; o < 5; o += 1) {
+                f += a * noise(x, y);
+                x *= 2.02;
+                y *= 2.02;
+                a *= 0.5;
+            }
+            return f;
+        };
+
+        const img = ctx.createImageData(size, size);
+        for (let py = 0; py < size; py += 1) {
+            for (let px = 0; px < size; px += 1) {
+                const u = px / size - 0.5;
+                const v = py / size - 0.5;
+                const x = u * 6;
+                const y = v * 6;
+                // Искажение координат даёт волокна вместо пятен
+                const wx = fbm(x + 3.1, y + 1.7) * 2.4;
+                const wy = fbm(x - 2.3, y + 5.2) * 2.4;
+                const n = fbm(x + wx, y + wy);
+                const dust = fbm(x * 2.2 - wy, y * 2.2 + wx);
+                const r = Math.sqrt(u * u + v * v) * 2;
+                const edge = Math.max(0, 1 - r * (0.85 + n * 0.6));
+                let lum = Math.pow(Math.max(0, n - 0.28) * 2.1, 1.6) * edge * edge;
+                lum *= 1 - Math.max(0, dust - 0.55) * 1.8;
+                lum = Math.min(1, Math.max(0, lum));
+                const k = (py * size + px) * 4;
+                // Яркие сгустки белеют: свет ионизированного газа горячее края
+                const core = Math.min(1, lum * 1.4);
+                img.data[k] = 255;
+                img.data[k + 1] = 200 + core * 55;
+                img.data[k + 2] = 210 + core * 45;
+                img.data[k + 3] = lum * 255;
+            }
         }
-
-        // Гасим края, чтобы квадрат спрайта не был заметен
-        ctx.globalCompositeOperation = 'destination-in';
-        const mask = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-        mask.addColorStop(0, 'rgba(255,255,255,1)');
-        mask.addColorStop(0.55, 'rgba(255,255,255,0.7)');
-        mask.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = mask;
-        ctx.fillRect(0, 0, size, size);
+        ctx.putImageData(img, 0, 0);
 
         const tex = new THREE.CanvasTexture(canvas);
         tex.colorSpace = THREE.SRGBColorSpace;

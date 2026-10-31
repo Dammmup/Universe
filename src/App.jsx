@@ -18,6 +18,7 @@ import { ScenarioJournal, ScenarioModal } from './components/Scenarios';
 import SceneVeil from './scenes/effects/SceneVeil';
 import PostFX from './scenes/effects/PostFX';
 import { veilPreset } from './lib/veilPresets';
+import { watchReducedMotion } from './lib/motion';
 import gsap from 'gsap';
 
 const loadBigBang = () => import('./scenes/BigBang');
@@ -91,6 +92,13 @@ function RendererGuard() {
  * Фон сцены меняется не переключателем, а плавным переходом цвета: иначе
  * чёрный микромир и белый антропо-уровень стыкуются вспышкой на один кадр.
  */
+/** Обработчик касаний живёт вне холста, а управление камерой — внутри. */
+function ControlsBridge({ target }) {
+    const controls = useThree((s) => s.controls);
+    useEffect(() => { target.current = controls; }, [controls, target]);
+    return null;
+}
+
 function SceneBackground() {
     const stage = useStore((s) => s.stage);
     const location = useStore((s) => s.location);
@@ -128,7 +136,7 @@ const STAGE_SHOTS = {
     // и нижние подписи не наезжают на строку интерфейса
     [CELL_STAGE]: { pos: [0, 0.6, 12.4], look: [0, -1.45, 0], fov: 58 },
     // Финал: вся нить масштабов целиком в кадре
-    [FINALE_STAGE]: { pos: [0, -0.1, 9.6], look: [0, 0.1, 0], fov: 46 },
+    [FINALE_STAGE]: { pos: [0, -0.6, 9.6], look: [0, -0.4, 0], fov: 46 },
 };
 
 /**
@@ -175,6 +183,7 @@ function JourneyCamera() {
     const approaching = useStore((s) => s.approachingEarth);
     const shift = useStore((s) => s.shift);
     const location = useStore((s) => s.location);
+    const calm = useStore((s) => s.calm);
     const finishEarthApproach = useStore((s) => s.finishEarthApproach);
     const setFreeLook = useStore((s) => s.setFreeLook);
     const { camera } = useThree();
@@ -228,6 +237,9 @@ function JourneyCamera() {
     // «внутрь», вверх — отрывается назад. Вспышка перестаёт быть статичной.
     useEffect(() => {
         if (!shift) return undefined;
+        // В спокойном режиме разгона нет вовсе: именно бросок камеры внутрь
+        // кадра под вспышкой и укачивает сильнее всего
+        if (calm) return undefined;
         const preset = veilPreset(shift.kind);
         // Вниз по масштабу камера падает внутрь кадра, наверх — отрывается
         // назад. Направление берём из самого перехода, а не из типа вуали:
@@ -269,7 +281,7 @@ function JourneyCamera() {
         prevApproach.current = approaching;
 
         // Длительность въезда: пока вуаль сходит, камера должна ещё ехать
-        const veil = shift ? veilPreset(shift.kind) : null;
+        const veil = shift ? veilPreset(shift.kind, calm) : null;
         const arrival = veil ? veil.hold + veil.reveal + 0.35 : 1.4;
 
         // Пролёт к живой Земле, пока ещё видна Солнечная система
@@ -337,12 +349,20 @@ function JourneyCamera() {
         const shot = STAGE_SHOTS[stage];
         if (!shot) return undefined;
 
-        const entry = STAGE_ENTRIES[stage];
+        // В спокойном режиме въезда нет: камера появляется почти на месте.
+        // Сокращать время пролёта тут нельзя — от этого он стал бы резче, а не
+        // спокойнее; убираем саму дистанцию.
+        const entry = calm ? null : STAGE_ENTRIES[stage];
         if (entry && shift) {
             // Под вуалью ставим камеру в точку въезда — зритель этого не видит
             camera.position.set(...entry);
             look.current.set(...shot.look);
             camera.fov = fovForAspect(Math.min(shot.fov + 12, 85), camera.aspect);
+            camera.updateProjectionMatrix();
+        } else if (shift) {
+            camera.position.set(...shot.pos);
+            look.current.set(...shot.look);
+            camera.fov = fovForAspect(shot.fov, camera.aspect);
             camera.updateProjectionMatrix();
         }
 
@@ -359,7 +379,7 @@ function JourneyCamera() {
         prevLocation.current = location;
         if (before === location) return undefined;
 
-        const veil = shift ? veilPreset(shift.kind) : null;
+        const veil = shift ? veilPreset(shift.kind, calm) : null;
         const arrival = veil ? veil.hold + veil.reveal + 0.35 : 1.4;
         const place = locationById(location);
 
@@ -421,9 +441,20 @@ export default function App() {
     ));
     const lowQuality = quality === 'low';
 
-    const [isTouch] = useState(() => (typeof window === 'undefined'
+    // Следим за сменой, а не читаем один раз: в адаптивном режиме браузера
+    // устройство переключают без перезагрузки, и сцена оставалась с
+    // настольным управлением на сенсорном экране
+    const [isTouch, setIsTouch] = useState(() => (typeof window === 'undefined'
         ? false
         : (window.matchMedia?.('(pointer: coarse)').matches ?? 'ontouchstart' in window)));
+    useEffect(() => {
+        const mq = window.matchMedia?.('(pointer: coarse)');
+        if (!mq) return undefined;
+        const onChange = () => setIsTouch(mq.matches);
+        mq.addEventListener('change', onChange);
+        return () => mq.removeEventListener('change', onChange);
+    }, []);
+    const controlsRef = useRef(null);
 
     const shifting = !!shift;
     const activePlace = locationById(location);
@@ -447,6 +478,10 @@ export default function App() {
         const state = useStore.getState();
         if (state.activeFactorId) state.clearFactor();
     }, []);
+
+    // Системную настройку «меньше движения» меняют на ходу — путь не должен
+    // требовать перезагрузки, чтобы её заметить
+    useEffect(() => watchReducedMotion(useStore.getState().setCalm), []);
 
     // Сцены подгружаем заранее: иначе чанк грузится в момент перехода и вместо
     // кинематографичной стыковки зритель видит спиннер Suspense.
@@ -514,7 +549,7 @@ export default function App() {
                     // Пролёт сквозь систему + вспышка атмосферы
                     holdMs = 5200;
                 } else if (after.shift) {
-                    const preset = veilPreset(after.shift.kind);
+                    const preset = veilPreset(after.shift.kind, after.calm);
                     holdMs = (preset.cover + preset.hold + preset.reveal) * 1000 + 250;
                 } else if (!after.location && (isEarthStage(from) || isEarthStage(to))) {
                     // 2↔3 крутят одну планету ~2.4с
@@ -545,56 +580,114 @@ export default function App() {
         };
 
         // ─── Касания ──────────────────────────────────────────────────────
-        // На телефоне колеса нет, и без этого пройти путь было невозможно:
-        // зритель застревал на первом же слое. Одним пальцем — шаг по пути,
-        // двумя — облёт и зум (OrbitControls, см. проп touches).
+        // Один палец: вбок — вращать сцену (Землю, тело, сеть), вверх-вниз —
+        // шаг по пути. Направление решается один раз, на первых 12 пикселях,
+        // и до конца жеста не меняется: раньше оно оценивалось только по
+        // итогу, и косой жест «вбок» листал слой, а вращать одним пальцем
+        // было нельзя вовсе. Два пальца — полный облёт и зум.
         let touch = null;
 
+        /** Вернуть управлению камеры всё, что жест у него забрал. */
+        const release = () => {
+            const c = controlsRef.current;
+            const saved = touch?.saved;
+            if (c && saved) {
+                c.minPolarAngle = saved.min;
+                c.maxPolarAngle = saved.max;
+                c.enableRotate = saved.rotate;
+            }
+        };
+
         const onTouchStart = (e) => {
-            // Жест по кнопке интерфейса навигацией не считается
+            // Второй палец: жест становится облётом, ограничения снимаются
             if (e.touches.length !== 1 || e.target?.closest?.('button')) {
+                release();
                 touch = null;
                 return;
             }
             const point = e.touches[0];
-            touch = { x: point.clientX, y: point.clientY, at: performance.now(), moved: false };
+            touch = { x: point.clientX, y: point.clientY, at: performance.now(), dir: null, saved: null };
+            // Одним пальцем камера крутится только вокруг вертикали: наклон
+            // достался бы и свайпу по пути, и слой листался бы с рывком кадра
+            const c = controlsRef.current;
+            if (c) {
+                touch.saved = { min: c.minPolarAngle, max: c.maxPolarAngle, rotate: c.enableRotate };
+                const polar = c.getPolarAngle();
+                c.minPolarAngle = polar;
+                c.maxPolarAngle = polar;
+            }
         };
 
         const onTouchMove = (e) => {
-            if (!touch || e.touches.length !== 1) return;
+            if (!touch || e.touches.length !== 1 || touch.dir) return;
             const point = e.touches[0];
-            if (Math.abs(point.clientY - touch.y) > 12 || Math.abs(point.clientX - touch.x) > 12) {
-                touch.moved = true;
-            }
+            const dx = point.clientX - touch.x;
+            const dy = point.clientY - touch.y;
+            if (Math.hypot(dx, dy) < 12) return;
+            touch.dir = Math.abs(dy) > Math.abs(dx) * 1.3 ? 'v' : 'h';
+            // Свайп по пути сцену не вертит
+            if (touch.dir === 'v' && controlsRef.current) controlsRef.current.enableRotate = false;
         };
 
         const onTouchEnd = (e) => {
             const start = touch;
+            release();
             touch = null;
-            // Касание без движения — это тап по фактору, а не свайп
-            if (!start || !start.moved) return;
+            // Касание без движения — тап по фактору; жест вбок — вращение
+            if (!start || start.dir !== 'v') return;
 
             const point = e.changedTouches[0];
             const dy = point.clientY - start.y;
-            const dx = point.clientX - start.x;
             const elapsed = performance.now() - start.at;
 
-            // Вертикальный и решительный: медленное поперечное ведение —
-            // это разглядывание сцены, а не переход на следующий слой
-            if (Math.abs(dy) < 70 || Math.abs(dy) < Math.abs(dx) * 1.4 || elapsed > 900) return;
+            // Решительный: медленное ведение пальцем — это разглядывание
+            if (Math.abs(dy) < 60 || elapsed > 900) return;
 
             step(dy < 0);
+        };
+
+        const onTouchCancel = () => {
+            release();
+            touch = null;
+        };
+
+        // ─── Клавиатура ───────────────────────────────────────────────────
+        // Путь проходился только колесом и свайпом: с клавиатуры добраться
+        // дальше первого слоя было нельзя вообще.
+        const FORWARD_KEYS = new Set(['ArrowDown', 'ArrowRight', 'PageDown', ' ', 'Spacebar']);
+        const BACK_KEYS = new Set(['ArrowUp', 'ArrowLeft', 'PageUp']);
+
+        const onKeyDown = (e) => {
+            // Модификаторы отданы браузеру и зуму, автоповтор от зажатой
+            // клавиши не должен проматывать путь насквозь
+            if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+
+            // Пока фокус в поле или на кнопке, клавиши принадлежат им
+            const tag = e.target?.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
+            if (tag === 'BUTTON' && (e.key === ' ' || e.key === 'Spacebar' || e.key === 'Enter')) return;
+
+            const forward = FORWARD_KEYS.has(e.key);
+            const back = BACK_KEYS.has(e.key);
+            if (!forward && !back) return;
+
+            e.preventDefault();
+            step(forward);
         };
 
         window.addEventListener('wheel', handleWheel, { passive: false, capture: true });
         window.addEventListener('touchstart', onTouchStart, { passive: true });
         window.addEventListener('touchmove', onTouchMove, { passive: true });
         window.addEventListener('touchend', onTouchEnd, { passive: true });
+        window.addEventListener('touchcancel', onTouchCancel, { passive: true });
+        window.addEventListener('keydown', onKeyDown);
         return () => {
             window.removeEventListener('wheel', handleWheel, { capture: true });
             window.removeEventListener('touchstart', onTouchStart);
             window.removeEventListener('touchmove', onTouchMove);
             window.removeEventListener('touchend', onTouchEnd);
+            window.removeEventListener('touchcancel', onTouchCancel);
+            window.removeEventListener('keydown', onKeyDown);
             if (idleTimer) clearTimeout(idleTimer);
         };
     }, []);
@@ -609,13 +702,20 @@ export default function App() {
                        объявлен устаревшим — берём обычный PCF */
                     shadows={lowQuality ? false : 'percentage'}
                     camera={{ position: [0, 0, 5], fov: 60, near: 0.1, far: 1400 }}
-                    dpr={lowQuality ? [0.75, 1] : [1, 1.75]}
-                    gl={{ antialias: true, powerPreference: 'high-performance', stencil: false }}
+                    /* Ниже одного пикселя на точку экрана картинка
+                       мылилась: монитор производительности на телефоне
+                       почти всегда уводил в низкое качество, а там было 0.75.
+                       Экономим на свечении и тенях, а не на резкости. */
+                    dpr={lowQuality ? [1, 1.5] : [1, 2]}
+                    /* Сглаживает композер (PostFX, samples): MSAA холста при
+                       постобработке достаётся только финальному кваду */
+                    gl={{ antialias: false, powerPreference: 'high-performance', stencil: false }}
                     onCreated={onCanvasCreated}
                     /* Клик мимо всего — выход из области тела обратно к фигуре */
                     onPointerMissed={onPointerMissed}
                 >
                     <RendererGuard />
+                    <ControlsBridge target={controlsRef} />
                     <SceneBackground />
                     <JourneyCamera />
 
@@ -633,7 +733,7 @@ export default function App() {
                             maxDistance={110}
                             maxPolarAngle={Math.PI * 0.46}
                             touches={isTouch
-                                ? { ONE: THREE.TOUCH.NONE, TWO: THREE.TOUCH.DOLLY_ROTATE }
+                                ? { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE }
                                 : { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
                             dampingFactor={0.08}
                             enableDamping
@@ -652,10 +752,10 @@ export default function App() {
                             zoomSpeed={stage === CELL_STAGE ? 1.05 : (isEarthStage(stage) ? 0.75 : 0.6)}
                             minDistance={isEarthStage(stage) ? 18 : stage === CELL_STAGE ? 1.4 : (stage === HUMAN_STAGE ? 1.6 : (stage === MIND_STAGE ? 3 : 5))}
                             maxDistance={isEarthStage(stage) ? 90 : stage === CELL_STAGE ? 80 : (stage === HUMAN_STAGE ? 26 : (stage === MIND_STAGE ? 40 : 200))}
-                            /* Один палец отдан навигации по пути, иначе свайп
-                               одновременно листал бы слой и крутил камеру */
+                            /* Один палец: вбок — облёт, вверх-вниз — путь
+                               (жесты разводит обработчик касаний) */
                             touches={isTouch
-                                ? { ONE: THREE.TOUCH.NONE, TWO: THREE.TOUCH.DOLLY_ROTATE }
+                                ? { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE }
                                 : { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
                             dampingFactor={0.08}
                             enableDamping
@@ -696,14 +796,19 @@ export default function App() {
                         bloomStrength={lowQuality ? 0 : (stage === HUMAN_STAGE ? 0.32 : (location ? 0.42 : 0.5))}
                         bloomThreshold={stage === HUMAN_STAGE ? 1.15 : (location ? 0.95 : 0.85)}
                         vignette={stage === HUMAN_STAGE ? 0.16 : (location ? 0.36 : 0.44)}
+                        samples={lowQuality ? 0 : 4}
+                        film={isTouch ? 0.35 : 1}
                     />
 
                 </Canvas>
             </div>
 
-            {/* Титр слоя: живёт ровно столько, сколько кадр залит вуалью */}
+            {/* Титр слоя: живёт ровно столько, сколько кадр залит вуалью.
+                Белый титр на белой вспышке взрыва пропадал — мягкая тень
+                отделяет его от любой заливки, на тёмной её не видно. */}
             <div
                 className={`pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center transition-opacity duration-700 ${shifting ? 'opacity-100' : 'opacity-0'}`}
+                style={incomingStage === HUMAN_STAGE ? undefined : { textShadow: '0 0 28px rgba(20,12,4,0.55), 0 1px 3px rgba(20,12,4,0.45)' }}
             >
                 {title && (
                     <>
@@ -721,19 +826,40 @@ export default function App() {
             <ScenarioJournal light={stage === HUMAN_STAGE} hidden={stage === 0 || shifting} />
 
             {/* Подложка под нижней панелью: на песке, снегу и небе без неё текст теряется */}
-            <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-black/75 via-black/30 to-transparent transition-opacity duration-700 ${location && !shifting ? 'opacity-100' : 'opacity-0'}`} />
+            <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-black/85 via-black/45 to-transparent transition-opacity duration-700 ${location && !shifting ? 'opacity-100' : 'opacity-0'}`} />
 
             {/* UI Overlay */}
             <div className={`absolute bottom-4 sm:bottom-10 w-full px-4 text-center pointer-events-none data-ui transition-opacity duration-500 ${shifting ? 'opacity-0' : 'opacity-100'}`}>
+                {/* Первое, что видит зритель, — и единственное, что ему надо
+                    сделать. Пульсирующая белая/50 на чёрном уходила к четверти
+                    яркости и читалась как шум; теперь текст ровный, а движение
+                    отдано стрелке — она и показывает, куда крутить. */}
                 {!isExploded && (
-                    <p className="text-white/50 tracking-[0.3em] uppercase text-xs animate-pulse">
-                        {isTouch ? 'Свайп вверх для старта' : 'Скролль вниз для старта'}
-                    </p>
+                    <div className="flex flex-col items-center gap-3 animate-fade-in">
+                        <p className="text-white/85 tracking-[0.32em] uppercase text-xs sm:text-sm">
+                            {isTouch ? 'Свайп вверх — начать' : 'Прокрути вниз — начать'}
+                        </p>
+                        {/* Поворот на обёртке: у самой стрелки transform занят анимацией */}
+                        <span className={`block ${isTouch ? 'rotate-180' : ''}`}>
+                        <svg
+                            aria-hidden="true"
+                            viewBox="0 0 24 24"
+                            className="h-5 w-5 text-white/70 animate-scroll-cue"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                        >
+                            <path d="M6 9l6 6 6-6" />
+                        </svg>
+                        </span>
+                    </div>
                 )}
                 {stage === STAGE.COSMOS && (
                     <div className="text-white/70 animate-fade-in relative z-50">
                         <p className="tracking-widest uppercase text-[11px] sm:text-sm mb-1.5 sm:mb-2">Макрокосмос</p>
-                        <p className="text-xs text-white/50">{isTouch ? 'Двумя пальцами — облёт, касание — объект. Свайп дальше.' : 'Вращай камеру, кликай на объекты. Скролль дальше.'}</p>
+                        <p className="text-xs text-white/50">{isTouch ? 'Палец вбок — облёт, касание — объект. Свайп вверх — дальше.' : 'Вращай камеру, кликай на объекты. Скролль дальше.'}</p>
                     </div>
                 )}
                 {stage === STAGE.PLANET && approachingEarth && (
