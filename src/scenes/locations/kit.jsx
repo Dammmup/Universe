@@ -644,16 +644,27 @@ export function useWindowMaterial({
                      {
                         float wall = 1.0 - step(0.6, abs(vWNorm.y));
                         vec2 facet = abs(vWNorm.x) > abs(vWNorm.z) ? vWPos.zy : vWPos.xy;
-                        vec2 cellId = floor(facet / uCell);
-                        vec2 f = fract(facet / uCell);
-                        float frame = step(0.2, f.x) * step(f.x, 0.8) * step(0.24, f.y) * step(f.y, 0.76);
+                        vec2 uvc = facet / uCell;
+                        vec2 cellId = floor(uvc);
+                        vec2 f = fract(uvc);
+                        // Сколько окон приходится на пиксель. Когда окно меньше
+                        // пикселя, узор превращался в рябь и мерцал при облёте:
+                        // вдали сетка плавно заменяется её средней яркостью.
+                        vec2 fw = fwidth(uvc);
+                        float aa = smoothstep(0.14, 0.6, max(fw.x, fw.y));
+                        vec2 e = max(fw, vec2(0.02));
+                        float frame = smoothstep(0.2 - e.x, 0.2 + e.x, f.x) * smoothstep(0.8 + e.x, 0.8 - e.x, f.x)
+                            * smoothstep(0.24 - e.y, 0.24 + e.y, f.y) * smoothstep(0.76 + e.y, 0.76 - e.y, f.y);
                         float h = winHash(cellId + floor(vWPos.xz * 0.37));
                         float on = step(1.0 - uLit, h);
                         float flick = 1.0 - uFlicker * step(0.6, fract(sin(uTime * 7.0 + h * 40.0) * 13.0));
-                        float glass = frame * wall;
-                        diffuseColor.rgb *= mix(1.0, 0.45, glass);
+                        float glass = mix(frame, 0.31, aa) * wall;
+                        // Стекло холоднее и темнее стены, но не дыра: днём оно
+                        // отражает небо, а не чернеет коричневым
+                        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.5 + vec3(0.04, 0.06, 0.09), glass);
                         vec3 tone = mix(uWinColor, uAltColor, uAlt);
-                        totalEmissiveRadiance += tone * glass * on * uLights * flick * (0.3 + 0.5 * winHash(cellId * 1.7));
+                        float glow = mix(on * (0.3 + 0.5 * winHash(cellId * 1.7)), uLit * 0.55, aa);
+                        totalEmissiveRadiance += tone * glass * glow * uLights * mix(flick, 1.0, aa);
                      }`,
                 );
         };
