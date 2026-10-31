@@ -803,9 +803,12 @@ export default function App() {
                 </Canvas>
             </div>
 
-            {/* Титр слоя: живёт ровно столько, сколько кадр залит вуалью */}
+            {/* Титр слоя: живёт ровно столько, сколько кадр залит вуалью.
+                Белый титр на белой вспышке взрыва пропадал — мягкая тень
+                отделяет его от любой заливки, на тёмной её не видно. */}
             <div
                 className={`pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center transition-opacity duration-700 ${shifting ? 'opacity-100' : 'opacity-0'}`}
+                style={incomingStage === HUMAN_STAGE ? undefined : { textShadow: '0 0 28px rgba(20,12,4,0.55), 0 1px 3px rgba(20,12,4,0.45)' }}
             >
                 {title && (
                     <>
