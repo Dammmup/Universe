@@ -42,6 +42,7 @@ class SoundEngine {
         this.mood = { heart: 64, crackle: 6, tint: 0 };
         // Эмбиент приседает, пока играет музыка нейрона (lib/music.js)
         this.duck = 1;
+        this.hidden = false;
     }
 
     /** Громкость шины с учётом выключателя и приседания под музыку. */
@@ -66,7 +67,7 @@ class SoundEngine {
     /** Создаёт контекст на первом жесте пользователя. */
     unlock() {
         if (this.ctx) {
-            if (this.ctx.state === 'suspended') this.ctx.resume();
+            if (this.ctx.state === 'suspended' && !this.hidden) this.ctx.resume();
             return;
         }
         const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -83,6 +84,17 @@ class SoundEngine {
         const key = this.profileKey;
         this.profileKey = 'silence';
         this.setProfile(key);
+    }
+
+    /**
+     * Вкладку свернули или переключили: контекст замирает целиком, вместе с
+     * гулом и хвостами эффектов. Раньше эмбиент продолжал играть в фоне.
+     */
+    setHidden(hidden) {
+        this.hidden = hidden;
+        if (!this.ctx) return;
+        if (hidden) this.ctx.suspend();
+        else this.ctx.resume();
     }
 
     makeNoise() {
@@ -180,7 +192,9 @@ class SoundEngine {
 
         // События слоя: сердце, птицы, щелчки нейронов, пузырьки, мерцание
         this.eventTimer = setInterval(() => {
-            if (!this.ctx || !this.enabled) return;
+            // На замершем контексте время стоит: события копились бы в одну
+            // точку и после возврата на вкладку звучали бы залпом
+            if (!this.ctx || !this.enabled || this.ctx.state !== 'running') return;
             const r = Math.random();
             if (profile.heartbeat) {
                 const interval = 60 / (this.mood.heart || profile.heartbeat);

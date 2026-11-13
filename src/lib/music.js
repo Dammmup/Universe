@@ -27,6 +27,7 @@ class MusicPlayer {
         this.missing = new Set();
         this.listeners = new Set();
         this.state = { id: null, track: null, playing: false };
+        this.hidden = false;
     }
 
     subscribe(fn) {
@@ -96,6 +97,19 @@ class MusicPlayer {
         this.current = null;
         sound.setDuck(1);
         this.emit({ id: null, track: null, playing: false });
+    }
+
+    /** Вкладка скрыта — трек встаёт на паузу и продолжается с того же места. */
+    setHidden(hidden) {
+        this.hidden = hidden;
+        const el = this.current?.el;
+        if (!el) return;
+        if (hidden) {
+            el.pause();
+        } else if (this.enabled) {
+            // Отказ здесь — не «файла нет»: в чёрный список трек не попадает
+            el.play()?.catch?.(() => {});
+        }
     }
 
     fadeOut(entry) {
