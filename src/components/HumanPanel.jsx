@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
-import { BODY_LAYERS } from '../data/bodyLayers';
+import { ANOMALY_MARK, BODY_LAYERS } from '../data/bodyLayers';
 import { MIND_SYSTEMS } from '../data/mind';
 import { music } from '../lib/music';
 
@@ -42,7 +42,7 @@ export function HumanPanel({ touch }) {
                 </button>
             </div>
             <p className="text-[11px] text-slate-400">
-                {touch ? 'Свайп — слой глубже. ◆ — аномалия.' : 'Колесо — слой глубже. ◆ — аномалия. На нервах клик по мозгу — внутрь разума.'}
+                {touch ? `Свайп — слой глубже. ${ANOMALY_MARK} — аномалия.` : `Колесо — слой глубже. ${ANOMALY_MARK} — аномалия. На нервах клик по мозгу — внутрь разума.`}
             </p>
         </div>
     );
