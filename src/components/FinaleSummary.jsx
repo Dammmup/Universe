@@ -132,15 +132,18 @@ export default function FinaleSummary() {
     };
 
     return (
-        <div className="animate-fade-in relative z-50 pointer-events-auto max-w-2xl mx-auto px-4 sm:px-6 py-4 sm:py-5 max-h-[62vh] overflow-y-auto rounded-2xl border border-white/10 bg-black/65 backdrop-blur-md">
-            <p className="tracking-[0.45em] uppercase text-[10px] mb-3 text-white/35">Путь пройден · ваш мир</p>
-            <p className="text-sm sm:text-base text-white/85 leading-relaxed mb-4">{verdict}</p>
+        <div className="animate-fade-in relative z-50 pointer-events-auto max-w-2xl mx-auto flex flex-col px-4 sm:px-6 py-3.5 sm:py-5 max-h-[50dvh] sm:max-h-[62vh] rounded-2xl border border-white/10 bg-black/65 backdrop-blur-md">
+            {/* Прокручивается только содержимое: кнопки всегда на виду, даже
+                когда собранный мир не помещается в карточку */}
+            <div className="min-h-0 overflow-y-auto">
+            <p className="tracking-[0.45em] uppercase text-[10px] mb-2 sm:mb-3 text-white/35">Путь пройден · ваш мир</p>
+            <p className="text-[13px] sm:text-base text-white/85 leading-snug sm:leading-relaxed mb-3 sm:mb-4">{verdict}</p>
 
             {portrait.length > 0 && (
                 <p className="text-xs text-cyan-200/70 mb-4">В нём: {portrait.join(' · ')}{reversedIds.length > portrait.length ? ` и ещё ${reversedIds.length - portrait.length}` : ''}</p>
             )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 mb-4 text-left">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1.5 sm:gap-y-2 mb-3 sm:mb-4 text-left">
                 {perScale.map((s) => (
                     <div key={s.id}>
                         <div className="flex justify-between text-[10px] uppercase tracking-wider">
@@ -154,7 +157,7 @@ export default function FinaleSummary() {
                 ))}
             </div>
 
-            <div className="flex flex-wrap justify-center gap-1.5 mb-5">
+            <div className="flex flex-wrap justify-center gap-1.5 mb-3 sm:mb-5">
                 {found.length === 0 && <span className="text-xs text-white/35">Ни одна комбинация не сложилась — а их {SCENARIOS.length}.</span>}
                 {found.map((s) => (
                     <span key={s.id} className="rounded-full border px-3 py-1 text-[11px]" style={{ borderColor: `${SCENARIO_KINDS[s.kind].accent}66`, color: SCENARIO_KINDS[s.kind].accent }}>
@@ -163,16 +166,20 @@ export default function FinaleSummary() {
                 ))}
             </div>
 
-            <p className="text-base text-white/90 italic mb-5">«Я не просто изучаю вселенную. Я её активирую.»</p>
+            {/* На телефоне цитата уступает место: карточка не должна закрывать нить */}
+            <p className="hidden sm:block text-base text-white/90 italic mb-5">«Я не просто изучаю вселенную. Я её активирую.»</p>
 
-            <div className="flex flex-wrap justify-center gap-2">
-                <button onClick={save} className="px-5 py-2 rounded-full bg-white text-black text-xs uppercase tracking-wider hover:bg-cyan-200 transition-colors">
+            </div>
+
+            {/* Телефон: главная кнопка во всю ширину, две второстепенные делят строку */}
+            <div className="shrink-0 pt-3 sm:pt-0 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-center">
+                <button onClick={save} className="col-span-2 px-5 py-2 rounded-full bg-white text-black text-xs uppercase tracking-wider hover:bg-cyan-200 transition-colors">
                     Сохранить карточку
                 </button>
-                <button onClick={copy} className="px-5 py-2 border border-white/30 rounded-full text-xs uppercase tracking-wider text-white/70 hover:bg-white hover:text-black transition-colors">
+                <button onClick={copy} className="px-2 sm:px-5 py-2 border border-white/30 rounded-full text-[11px] sm:text-xs uppercase tracking-wider text-white/70 hover:bg-white hover:text-black transition-colors">
                     {copied ? 'Скопировано' : 'Скопировать итог'}
                 </button>
-                <button onClick={resetJourney} className="px-5 py-2 border border-white/30 rounded-full text-xs uppercase tracking-wider text-white/70 hover:bg-white hover:text-black transition-colors">
+                <button onClick={resetJourney} className="px-2 sm:px-5 py-2 border border-white/30 rounded-full text-[11px] sm:text-xs uppercase tracking-wider text-white/70 hover:bg-white hover:text-black transition-colors">
                     Пройти путь снова
                 </button>
             </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore } from '../store';
@@ -19,14 +19,28 @@ import { SCALES, reversedInScale } from '../data/scales';
  * Точки нити: пологая дуга из верхнего левого угла вправо. Спуск пологий:
  * при крутом последние узлы — разум и клетка — уходили под карточку итога.
  */
-const NODES = SCALES.map((scale, i) => ({
+const WIDE_NODES = SCALES.map((scale, i) => ({
     ...scale,
     position: [
         -4.6 + i * 1.32,
-        2.65 - i * 0.3 + Math.sin(i * 1.7) * 0.16,
+        2.65 - i * 0.2 + Math.sin(i * 1.7) * 0.16,
         -1.1 + i * 0.3,
     ],
 }));
+
+/**
+ * Вертикальный экран: дуга шириной в девять единиц в кадр не помещается —
+ * крайние узлы срезались, а середину закрывала карточка итога. Здесь нить
+ * идёт сверху вниз зигзагом над карточкой, подписи стоят сбоку от узлов.
+ */
+const TALL_NODES = SCALES.map((scale, i) => ({
+    ...scale,
+    side: i % 2 ? -1 : 1,
+    position: [i % 2 ? 1 : -1, 5.4 - i * 0.65, 0],
+}));
+
+/** Ниже этого соотношения сторон кадр считается вертикальным. */
+const TALL_ASPECT = 0.9;
 
 function StarField() {
     const ref = useRef();
@@ -103,16 +117,17 @@ function ScaleNode({ node, index }) {
                     blending={THREE.AdditiveBlending}
                 />
             </sprite>
-            {/* Подписи через одну сверху и снизу: у соседних узлов они иначе сталкивались */}
-            <Billboard position={[0, index % 2 ? 0.5 : -0.62, 0]}>
+            {/* Подписи через одну сверху и снизу: у соседних узлов они иначе
+                сталкивались. На вертикальном экране — сбоку, к середине кадра */}
+            <Billboard position={node.side ? [node.side * 0.5, 0, 0] : [0, index % 2 ? 0.5 : -0.62, 0]}>
                 <Text
                     font="/Roboto-Regular.ttf"
-                    fontSize={0.23}
+                    fontSize={node.side ? 0.3 : 0.23}
                     letterSpacing={0.16}
                     color={node.tone}
                     fillOpacity={0.85}
-                    anchorX="center"
-                    anchorY={index % 2 ? 'bottom' : 'top'}
+                    anchorX={node.side ? (node.side > 0 ? 'left' : 'right') : 'center'}
+                    anchorY={node.side ? 'middle' : (index % 2 ? 'bottom' : 'top')}
                     outlineColor="#000000"
                     outlineWidth={0.012}
                     outlineOpacity={0.6}
@@ -126,11 +141,11 @@ function ScaleNode({ node, index }) {
 }
 
 /** Нить между узлами и бегущий по ней импульс. */
-function Thread() {
+function Thread({ nodes }) {
     const pulseRef = useRef();
     const curve = useMemo(() => new THREE.CatmullRomCurve3(
-        NODES.map((node) => new THREE.Vector3(...node.position)),
-    ), []);
+        nodes.map((node) => new THREE.Vector3(...node.position)),
+    ), [nodes]);
 
     const geometry = useMemo(() => new THREE.TubeGeometry(curve, 160, 0.012, 6, false), [curve]);
     useEffect(() => () => geometry.dispose(), [geometry]);
@@ -223,6 +238,9 @@ function ReversalSparks({ node, count }) {
 export default function Finale() {
     const reversedFactors = useStore((s) => s.reversedFactors);
     const groupRef = useRef();
+    // Поворот телефона меняет раскладку нити на ходу
+    const tall = useThree((s) => s.size.width / s.size.height < TALL_ASPECT);
+    const nodes = tall ? TALL_NODES : WIDE_NODES;
 
 
     useFrame((state) => {
@@ -236,11 +254,11 @@ export default function Finale() {
             <ambientLight intensity={0.4} />
             <StarField />
             <group ref={groupRef}>
-                <Thread />
-                {NODES.map((node, i) => (
+                <Thread nodes={nodes} />
+                {nodes.map((node, i) => (
                     <ScaleNode key={node.title} node={node} index={i} />
                 ))}
-                {NODES.map((node) => (
+                {nodes.map((node) => (
                     <ReversalSparks key={`s${node.title}`} node={node} count={Math.min(reversedInScale(node, reversedFactors), 24)} />
                 ))}
             </group>
