@@ -102,4 +102,3 @@ export const BODY_LAYERS = [
 ];
 
 export const BODY_LAYER_COUNT = BODY_LAYERS.length;
-export const bodyLayerByIndex = (i) => BODY_LAYERS[Math.max(0, Math.min(BODY_LAYERS.length - 1, i))];

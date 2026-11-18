@@ -37,15 +37,6 @@ export function surfaceQuaternion(pos, target = QUAT_SCRATCH) {
     return target.setFromUnitVectors(UP, NORMAL_SCRATCH);
 }
 
-/** Сферические координаты в XYZ (совместимо со старым кодом сцен). */
-export function sph(r, phi, theta) {
-    return [
-        r * Math.sin(phi) * Math.cos(theta),
-        r * Math.cos(phi),
-        r * Math.sin(phi) * Math.sin(theta),
-    ];
-}
-
 /**
  * Детерминированный ГПСЧ (mulberry32). Нужен, чтобы города, леса и горы
  * появлялись на одних и тех же местах при каждом запуске и при hot-reload.

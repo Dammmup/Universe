@@ -165,9 +165,6 @@ export const locationsForStage = (stage) => {
     return [];
 };
 
-/** Какому слою принадлежит локация: природа или общество. */
-export const stageOfLocation = (id) => (CITY_LOCATIONS.some((l) => l.id === id) ? STAGE.SOCIETY : STAGE.NATURE);
-
 /** Факторы, которые живут не в локации, а на самой планете-карте. */
 const PLANET_WIDE = {
     atmosphere: 'Планета', aurora: 'Планета', tectonics: 'Планета', currents: 'Планета',

@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import { sweepProfile } from './anatomy';
 
 /**
@@ -178,8 +177,3 @@ export function buildBladder() {
     ], 30, 18);
 }
 
-export function disposeAll(geometries) {
-    Object.values(geometries).forEach((geometry) => {
-        if (geometry instanceof THREE.BufferGeometry) geometry.dispose();
-    });
-}

@@ -143,8 +143,3 @@ export function nebulaSprite() {
     });
 }
 
-/** Освобождает разделяемые текстуры (вызывается при полной выгрузке приложения). */
-export function disposeSprites() {
-    cache.forEach((tex) => tex.dispose());
-    cache.clear();
-}

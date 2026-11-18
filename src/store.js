@@ -92,7 +92,6 @@ export const useStore = create((set, get) => ({
             scenarioQueue: [...state.scenarioQueue, ...fresh],
         };
     }),
-    isFactorReversed: (id) => Boolean(useStore.getState().reversedFactors[id]),
     clearFactor: () => set({ activeFactorId: null }),
 
     // Уведомления об эхе на других слоях (data/consequences.js)
@@ -304,10 +303,6 @@ export const useStore = create((set, get) => ({
         if (!state.approachingEarth || state.shift) return;
         get().beginShift('dive', { type: 'earthArrive' });
     },
-
-    // Дополнительные данные, если понадобятся для камеры
-    cameraTarget: [0, 0, 0],
-    setCameraTarget: (target) => set({ cameraTarget: target })
 }));
 
 // ─── Сохранение прогресса ───────────────────────────────────────────────────
