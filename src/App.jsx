@@ -479,6 +479,13 @@ export default function App() {
         if (state.activeFactorId) state.clearFactor();
     }, []);
 
+    // Метка под курсором размонтируется вместе со сценой (клик по локации,
+    // смена слоя), а pointerout R3F ей уже не пришлёт: курсор оставался
+    // «рукой» над пустым кадром. Любая смена кадра возвращает обычный.
+    useEffect(() => {
+        document.body.style.cursor = 'auto';
+    }, [stage, location, shifting]);
+
     // Системную настройку «меньше движения» меняют на ходу — путь не должен
     // требовать перезагрузки, чтобы её заметить
     useEffect(() => watchReducedMotion(useStore.getState().setCalm), []);
@@ -533,7 +540,7 @@ export default function App() {
                 const from = state.stage;
 
                 if (forward) {
-                    if (from === 0 && !state.isExploded) {
+                    if (from === STAGE.SINGULARITY && !state.isExploded) {
                         state.triggerBang();
                     } else {
                         state.nextStage();
@@ -728,7 +735,7 @@ export default function App() {
                     {/* Во время киношного наезда мышь не крутит камеру.
                         На природе и в городе после кадра — тот же облёт, чтобы
                         дотянуться до факторов на краях и обратной стороне. */}
-                    {isExploded && stage >= 1 && !approachingEarth && freeLook && !shifting && activePlace && (
+                    {isExploded && stage >= STAGE.COSMOS && !approachingEarth && freeLook && !shifting && activePlace && (
                         /* В диораме облёт вокруг центра местности и не ниже земли */
                         <OrbitControls
                             key={`loc-${activePlace.id}`}
@@ -747,7 +754,7 @@ export default function App() {
                             makeDefault
                         />
                     )}
-                    {isExploded && stage >= 1 && !approachingEarth && freeLook && !shifting && !activePlace && (
+                    {isExploded && stage >= STAGE.COSMOS && !approachingEarth && freeLook && !shifting && !activePlace && (
                         <OrbitControls
                             /* На теле облёт должен крутиться вокруг выбранной области.
                                С общей точкой [0,0,0] управление, перехватив камеру
@@ -829,7 +836,7 @@ export default function App() {
             </div>
 
             <Onboarding stage={stage} hidden={shifting || !!activeFactorId || scenarioOpen} light={stage === HUMAN_STAGE} touch={isTouch} />
-            <ScenarioJournal light={stage === HUMAN_STAGE} hidden={stage === 0 || shifting} />
+            <ScenarioJournal light={stage === HUMAN_STAGE} hidden={stage === STAGE.SINGULARITY || shifting} />
 
             {/* Подложка под нижней панелью: на песке, снегу и небе без неё текст теряется */}
             <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-black/85 via-black/45 to-transparent transition-opacity duration-700 ${location && !shifting ? 'opacity-100' : 'opacity-0'}`} />
