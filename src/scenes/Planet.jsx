@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import gsap from 'gsap';
@@ -395,8 +395,14 @@ function LocationPin({ location, radius }) {
     const [hovered, setHovered] = useState(false);
     const groupRef = useRef();
     const scaleRef = useRef();
+    const flagRef = useRef();
+    const flagSide = useRef(1);
     const worldPos = useMemo(() => new THREE.Vector3(), []);
     const toCamera = useMemo(() => new THREE.Vector3(), []);
+    const onScreen = useMemo(() => new THREE.Vector3(), []);
+    // На телефоне табличка в пикселях выходила вдвое мельче — подпись места
+    // не читалась вовсе
+    const base = useThree((s) => (s.size.width / s.size.height < 0.9 ? 1.2 : 1));
 
     const { position, quaternion } = useMemo(() => {
         const pos = latLonToVec3(location.lat, location.lon, radius + 0.9);
@@ -412,8 +418,21 @@ function LocationPin({ location, radius }) {
         group.visible = worldPos.dot(toCamera) > -radius * 0.2;
         const s = scaleRef.current;
         if (s) {
-            const target = hovered ? 1.25 : 1;
+            const target = (hovered ? 1.25 : 1) * base;
             s.scale.setScalar(THREE.MathUtils.damp(s.scale.x, target, 8, delta));
+        }
+        // Табличка — флажок сбоку от иглы, а не на ней: в центре диска игла
+        // смотрит прямо в камеру, и табличка закрывала собственное кольцо.
+        // Справа от центра кадра флажок разворачивается влево, чтобы не
+        // уходить за край экрана. Порог с запасом — у середины не мигает.
+        const flag = flagRef.current;
+        if (flag && s) {
+            onScreen.copy(worldPos).project(state.camera);
+            if (onScreen.x > 0.12) flagSide.current = -1;
+            else if (onScreen.x < -0.12) flagSide.current = 1;
+            const k = s.scale.x;
+            flag.position.x = THREE.MathUtils.damp(flag.position.x, flagSide.current * 1.75 * k, 6, delta);
+            flag.position.y = 0.62 * k;
         }
     });
 
@@ -438,6 +457,7 @@ function LocationPin({ location, radius }) {
                 <meshBasicMaterial color={location.accent} transparent opacity={0.8} toneMapped={false} side={THREE.DoubleSide} />
             </mesh>
             <Billboard position={[0, 0.95, 0]}>
+                <group ref={flagRef}>
                 <group
                     ref={scaleRef}
                     onClick={(e) => { e.stopPropagation(); enterLocation(location.id); }}
@@ -445,13 +465,16 @@ function LocationPin({ location, radius }) {
                     onPointerOver={onOver}
                     onPointerOut={onOut}
                 >
-                    <mesh>
+                    {/* Табличка рисуется поверх шара: флажок у края диска иначе
+                        уходил в выпуклость сферы и обрезался. Обратную сторону
+                        прячет проверка в useFrame. */}
+                    <mesh renderOrder={10}>
                         <planeGeometry args={[3.3, 1.05]} />
-                        <meshBasicMaterial color="#000000" transparent opacity={hovered ? 0.72 : 0.5} depthWrite={false} />
+                        <meshBasicMaterial color="#000000" transparent opacity={hovered ? 0.72 : 0.5} depthWrite={false} depthTest={false} />
                     </mesh>
-                    <mesh position={[-1.58, 0, 0.001]} raycast={() => null}>
+                    <mesh position={[-1.58, 0, 0.001]} raycast={() => null} renderOrder={11}>
                         <planeGeometry args={[0.06, 1.05]} />
-                        <meshBasicMaterial color={location.accent} toneMapped={false} />
+                        <meshBasicMaterial color={location.accent} toneMapped={false} depthTest={false} />
                     </mesh>
                     <Text
                         font="/Roboto-Regular.ttf"
@@ -461,6 +484,8 @@ function LocationPin({ location, radius }) {
                         color="#ffffff"
                         anchorX="left"
                         anchorY="middle"
+                        renderOrder={11}
+                        material-depthTest={false}
                         raycast={() => null}
                     >
                         {location.title.toUpperCase()}
@@ -473,10 +498,13 @@ function LocationPin({ location, radius }) {
                         fillOpacity={0.85}
                         anchorX="left"
                         anchorY="middle"
+                        renderOrder={11}
+                        material-depthTest={false}
                         raycast={() => null}
                     >
                         {`${location.place} · ${reversed}/${location.factors.length}`}
                     </Text>
+                </group>
                 </group>
             </Billboard>
         </group>
