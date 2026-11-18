@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useStore } from '../store';
 import { FACTORS_DATA } from '../data/factors';
 import { placeOfFactor } from '../data/locations';
@@ -27,7 +27,18 @@ export default function FactorModal() {
     const docked = useStore((s) => s.stage === STAGE.MIND);
 
     const factor = activeFactorId ? FACTORS_DATA[activeFactorId] : null;
-    if (!factor || blocked) return null;
+    const open = !!factor && !blocked;
+
+    // Escape закрывает карточку — как окно сценария. Пока сценарий поверх,
+    // клавиша достаётся ему.
+    useEffect(() => {
+        if (!open) return undefined;
+        const onKey = (e) => { if (e.key === 'Escape') clearFactor(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [open, clearFactor]);
+
+    if (!open) return null;
 
     const place = placeOfFactor(activeFactorId);
     const related = SCENARIOS.filter((s) => s.factors.includes(activeFactorId));

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { STAGE } from '../lib/stages';
 
 /**
  * Подсказка при первом запуске.
@@ -57,14 +58,14 @@ export default function Onboarding({ stage, hidden, light, touch }) {
     // Появляется не в момент прилёта, а когда кадр уже собрался: иначе
     // подсказка всплывает поверх вспышки перехода
     useEffect(() => {
-        if (seen || stage !== 1) return undefined;
+        if (seen || stage !== STAGE.COSMOS) return undefined;
         const timer = setTimeout(() => setOpen(true), 1600);
         return () => clearTimeout(timer);
     }, [seen, stage]);
 
     // Ушёл дальше по пути — значит разобрался сам
     useEffect(() => {
-        if (seen || stage <= 1) return;
+        if (seen || stage <= STAGE.COSMOS) return;
         setSeen(true);
         setOpen(false);
         writeSeen();
@@ -76,7 +77,7 @@ export default function Onboarding({ stage, hidden, light, touch }) {
         writeSeen();
     }, []);
 
-    if (stage === 0 || hidden) return null;
+    if (stage === STAGE.SINGULARITY || hidden) return null;
 
     const hints = touch ? TOUCH_HINTS : POINTER_HINTS;
     const muted = light ? 'text-slate-500' : 'text-white/45';
