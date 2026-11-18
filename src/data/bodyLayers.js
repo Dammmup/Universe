@@ -12,6 +12,13 @@
  * макушка y ≈ 3.84, фигура смотрит на зрителя (+Z), правая сторона тела — −X.
  */
 
+/**
+ * Пометка аномалии в подписях. Знак обязан быть в public/Roboto-Regular.ttf:
+ * прежнего ромба «◆» там нет, и движок 3D-текста шёл за запасным шрифтом на
+ * внешний CDN — без сети подпись аномалии не рисовалась вовсе.
+ */
+export const ANOMALY_MARK = '•';
+
 /** Общий план: фигура целиком в кадре. */
 // Кадр опущен: постамент статуи должен выглядывать над нижней панелью
 export const BODY_OVERVIEW = { pos: [0, -1.2, 14.6], look: [0, -1.3, 0], fov: 45 };
@@ -95,4 +102,3 @@ export const BODY_LAYERS = [
 ];
 
 export const BODY_LAYER_COUNT = BODY_LAYERS.length;
-export const bodyLayerByIndex = (i) => BODY_LAYERS[Math.max(0, Math.min(BODY_LAYERS.length - 1, i))];

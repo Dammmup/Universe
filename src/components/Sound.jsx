@@ -30,6 +30,13 @@ export function SoundController() {
         const events = ['pointerdown', 'wheel', 'touchstart', 'keydown'];
         events.forEach((e) => window.addEventListener(e, unlock, { passive: true }));
 
+        // Свёрнутая или фоновая вкладка молчит и продолжает с того же места
+        const onVisibility = () => {
+            sound.setHidden(document.hidden);
+            music.setHidden(document.hidden);
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+
         const apply = (state) => {
             const isCity = CITY_LOCATIONS.some((l) => l.id === state.location);
             sound.setProfile(profileFor({ stage: state.stage, location: state.location, STAGE, isCity }));
@@ -66,6 +73,7 @@ export function SoundController() {
 
         return () => {
             unsubscribe();
+            document.removeEventListener('visibilitychange', onVisibility);
             music.stop();
             events.forEach((e) => window.removeEventListener(e, unlock));
         };

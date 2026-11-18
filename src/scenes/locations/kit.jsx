@@ -33,15 +33,6 @@ const smooth = (a, b, v) => {
  */
 export const useReversed = (id) => useStore((s) => isEffectivelyReversed(s.reversedFactors, id));
 
-/** Плавное значение 0↔1 вслед за флагом. Читается в useFrame через .current. */
-export function useBlend(on, speed = 1.2) {
-    const ref = useRef(on ? 1 : 0);
-    useFrame((_, dt) => {
-        ref.current = damp(ref.current, on ? 1 : 0, speed, Math.min(dt, 0.1));
-    });
-    return ref;
-}
-
 /**
  * Туман сцены. Ставится прямо на scene: fog внутри группы R3F повесил бы на
  * группу, где его никто не читает. Цвет и плотность меняются в кадре —

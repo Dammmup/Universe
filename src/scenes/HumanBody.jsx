@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore } from '../store';
-import { BODY_LAYERS } from '../data/bodyLayers';
+import { ANOMALY_MARK, BODY_LAYERS } from '../data/bodyLayers';
 import { withEchoes } from '../data/consequences';
 import {
     GhostSkin,
@@ -701,8 +701,8 @@ export default function HumanBody() {
                     key={factor.id}
                     position={factor.pos}
                     factorId={factor.id}
-                    label={factor.anomaly ? `◆ ${factor.label}` : factor.label}
-                    reverseLabel={factor.anomaly ? `◆ ${factor.reverse}` : factor.reverse}
+                    label={factor.anomaly ? `${ANOMALY_MARK} ${factor.label}` : factor.label}
+                    reverseLabel={factor.anomaly ? `${ANOMALY_MARK} ${factor.reverse}` : factor.reverse}
                     color={factor.color}
                     reverseColor="#8b93a3"
                     scale={0.42}
