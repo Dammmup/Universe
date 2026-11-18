@@ -89,13 +89,13 @@ export default function Onboarding({ stage, hidden, light, touch }) {
     return (
         <div className="absolute top-4 left-4 sm:top-auto sm:bottom-10 sm:left-10 z-[60] flex flex-col-reverse sm:flex-col items-start gap-3 pointer-events-none">
             {open && (
-                <div className={`pointer-events-auto w-64 max-w-[calc(100vw-2rem)] rounded-2xl border p-4 sm:p-5 backdrop-blur-md shadow-lg animate-fade-in ${panel}`}>
-                    <p className={`text-[10px] uppercase tracking-[0.4em] mb-4 ${muted}`}>
+                <div className={`pointer-events-auto w-56 sm:w-64 max-w-[calc(100vw-2rem)] rounded-2xl border p-3 sm:p-5 backdrop-blur-md shadow-lg animate-fade-in ${panel}`}>
+                    <p className={`text-[10px] uppercase tracking-[0.4em] mb-2.5 sm:mb-4 ${muted}`}>
                         Как это работает
                     </p>
-                    <ul className="flex flex-col gap-3 mb-5">
+                    <ul className="flex flex-col gap-1.5 sm:gap-3 mb-3 sm:mb-5">
                         {hints.map((hint) => (
-                            <li key={hint.gesture} className="text-xs leading-snug">
+                            <li key={hint.gesture} className="text-[11px] sm:text-xs leading-snug">
                                 <span className={`font-medium ${accent}`}>{hint.gesture}</span>
                                 <span className={muted}> — {hint.meaning}</span>
                             </li>
