@@ -140,6 +140,26 @@ const STAGE_SHOTS = {
 };
 
 /**
+ * Вертикальный экран. Широкие кадры на телефоне компенсируются расширением
+ * угла (fovForAspect), и вертикальным объектам это вредит: фигура и клетка
+ * съёживались до половины высоты, а над ними висела пустая треть экрана.
+ * Здесь кадры для узкого экрана с углом «как есть» (fixedFov): объект
+ * крупнее и стоит выше нижней панели. Космос снят сверху — эллипс орбит
+ * становится круглее и помещается по ширине, Земля не уходит за край.
+ */
+const TALL_ASPECT = 0.9;
+const TALL_QUERY = `(max-aspect-ratio: ${TALL_ASPECT * 10}/10)`;
+
+const TALL_SHOTS = {
+    [STAGE.COSMOS]: { pos: [0, 60, 40], look: [0, -4, 0], fov: 68, fixedFov: true },
+    [HUMAN_STAGE]: { pos: [0, -1.8, 14.6], look: [0, -1.9, 0], fov: 50, fixedFov: true },
+    [CELL_STAGE]: { pos: [0, 0.5, 12.4], look: [0, -0.9, 0], fov: 78, fixedFov: true },
+};
+
+/** Кадр слоя с учётом ориентации экрана. */
+const shotFor = (stage, tall) => (tall && TALL_SHOTS[stage]) || STAGE_SHOTS[stage];
+
+/**
  * Откуда начинается въезд в слой. Кадр открывается уже в движении: камера
  * подъезжает к финальной точке, пока вуаль сходит, — из-за этого переход
  * читается как продолжение полёта, а не как появление новой картинки.
@@ -162,6 +182,11 @@ const STAGE_ENTRIES = {
 const DESIGN_ASPECT = 1.6;
 const MAX_FOV = 84;
 
+/** Угол кадра на этом экране: широкие кадры расширяются, вертикальные — нет. */
+function fovForShot(shot, aspect) {
+    return shot.fixedFov ? shot.fov : fovForAspect(shot.fov, aspect);
+}
+
 function fovForAspect(fov, aspect) {
     if (!aspect || aspect >= DESIGN_ASPECT) return fov;
     const half = THREE.MathUtils.degToRad(fov * 0.5);
@@ -178,7 +203,7 @@ function fovForAspect(fov, aspect) {
  * 2→3: камера стоит, Земля поворачивается к городам.
  * Остальные стыки накрыты вуалью, и камера продолжает движение сквозь неё.
  */
-function JourneyCamera() {
+function JourneyCamera({ tall }) {
     const stage = useStore((s) => s.stage);
     const approaching = useStore((s) => s.approachingEarth);
     const shift = useStore((s) => s.shift);
@@ -194,10 +219,11 @@ function JourneyCamera() {
     const aimLookAt = useRef(true);
     const unlockTimer = useRef(null);
 
-    const shotFov = useRef(60);
+    // Текущий кадр: при повороте экрана угол пересчитывается по нему
+    const currentShot = useRef({ fov: 60 });
 
     const tweenTo = useCallback((shot, duration, ease = 'power2.inOut', keepAim = true) => {
-        shotFov.current = shot.fov;
+        currentShot.current = shot;
         gsap.killTweensOf(camera.position);
         gsap.killTweensOf(camera);
         gsap.killTweensOf(look.current);
@@ -223,7 +249,7 @@ function JourneyCamera() {
         });
         gsap.to(look.current, { x: shot.look[0], y: shot.look[1], z: shot.look[2], duration, ease });
         gsap.to(camera, {
-            fov: fovForAspect(shot.fov, camera.aspect),
+            fov: fovForShot(shot, camera.aspect),
             duration,
             ease,
             onUpdate: () => camera.updateProjectionMatrix(),
@@ -346,7 +372,7 @@ function JourneyCamera() {
             return undefined;
         }
 
-        const shot = STAGE_SHOTS[stage];
+        const shot = shotFor(stage, tall);
         if (!shot) return undefined;
 
         // В спокойном режиме въезда нет: камера появляется почти на месте.
@@ -357,12 +383,12 @@ function JourneyCamera() {
             // Под вуалью ставим камеру в точку въезда — зритель этого не видит
             camera.position.set(...entry);
             look.current.set(...shot.look);
-            camera.fov = fovForAspect(Math.min(shot.fov + 12, 85), camera.aspect);
+            camera.fov = fovForShot({ ...shot, fov: Math.min(shot.fov + 12, 85) }, camera.aspect);
             camera.updateProjectionMatrix();
         } else if (shift) {
             camera.position.set(...shot.pos);
             look.current.set(...shot.look);
-            camera.fov = fovForAspect(shot.fov, camera.aspect);
+            camera.fov = fovForShot(shot, camera.aspect);
             camera.updateProjectionMatrix();
         }
 
@@ -371,6 +397,7 @@ function JourneyCamera() {
         // shift читаем как «есть ли активная вуаль», перезапуск от него не нужен
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [stage, approaching, camera, finishEarthApproach, setFreeLook, tweenTo]);
+    // tall читается в момент въезда; смену ориентации ведёт эффект ниже
 
     // Локации мезо-уровней: под вуалью камера ставится высоко над местностью
     // и опускается к кадру диорамы; при выходе — снова портрет планеты.
@@ -408,9 +435,21 @@ function JourneyCamera() {
     // Поворот телефона меняет соотношение сторон, а значит и нужный угол
     const viewport = useThree((s) => s.size);
     useEffect(() => {
-        camera.fov = fovForAspect(shotFov.current, camera.aspect);
+        camera.fov = fovForShot(currentShot.current, camera.aspect);
         camera.updateProjectionMatrix();
     }, [viewport, camera]);
+
+    // Экран перевернули из вертикали в горизонталь или обратно — у слоя
+    // другой кадр, камера переезжает в него. Во время переходов и в
+    // диорамах кадр ведёт кто-то другой.
+    const prevTall = useRef(tall);
+    useEffect(() => {
+        if (prevTall.current === tall) return;
+        prevTall.current = tall;
+        const state = useStore.getState();
+        if (state.shift || state.location || state.approachingEarth || !TALL_SHOTS[state.stage]) return;
+        tweenTo(shotFor(state.stage, tall), 0.9, 'power2.inOut', false);
+    }, [tall, tweenTo]);
 
     useFrame(() => {
         if (aimLookAt.current) camera.lookAt(look.current);
@@ -456,9 +495,21 @@ export default function App() {
     }, []);
     const controlsRef = useRef(null);
 
+    // Вертикальный экран: у тела, клетки и космоса для него свои кадры
+    const [tall, setTall] = useState(() => (typeof window !== 'undefined' && !!window.matchMedia?.(TALL_QUERY).matches));
+    useEffect(() => {
+        const mq = window.matchMedia?.(TALL_QUERY);
+        if (!mq) return undefined;
+        const onChange = () => setTall(mq.matches);
+        mq.addEventListener('change', onChange);
+        return () => mq.removeEventListener('change', onChange);
+    }, []);
+
     const shifting = !!shift;
     const activePlace = locationById(location);
-    const bodyLook = BODY_OVERVIEW.look;
+    // Облёт крутится вокруг той же точки, куда смотрит кадр: иначе управление,
+    // перехватив камеру после наезда, дёргало бы взгляд
+    const orbitLook = shotFor(stage, tall)?.look ?? [0, 0, 0];
 
     // Заголовок слоя, в который идёт переход. Нырок в локацию титруется её именем.
     const incomingStage = shift?.commit?.type === 'stage' ? shift.commit.to : stage;
@@ -730,7 +781,7 @@ export default function App() {
                     <RendererGuard />
                     <ControlsBridge target={controlsRef} />
                     <SceneBackground />
-                    <JourneyCamera />
+                    <JourneyCamera tall={tall} />
 
                     {/* Во время киношного наезда мышь не крутит камеру.
                         На природе и в городе после кадра — тот же облёт, чтобы
@@ -772,7 +823,7 @@ export default function App() {
                                 : { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
                             dampingFactor={0.08}
                             enableDamping
-                            target={isEarthStage(stage) ? [0, 0.4, 0] : (stage === HUMAN_STAGE ? bodyLook : [0, 0, 0])}
+                            target={isEarthStage(stage) ? [0, 0.4, 0] : (stage === HUMAN_STAGE || TALL_SHOTS[stage] && tall ? orbitLook : [0, 0, 0])}
                             makeDefault
                         />
                     )}
